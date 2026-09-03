@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Banner Setup Tool</title>
+<script src="jspdf.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #1a1a2e; --surface: #16213e; --surface2: #0f3460;
+    --accent: #e94560; --accent2: #00b4d8;
+    --text: #e0e0e0; --text-dim: #8892a0; --border: #2a3a5e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .app-header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 8px 16px; display: flex; align-items: center; gap: 12px;
+  }
+  .app-header h1 { font-size: 16px; font-weight: 600; }
+  .app-header .subtitle { color: var(--text-dim); font-size: 11px; }
+
+  .main-layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 42px); }
+
+  /* ── Config Panel ── */
+  .config-panel { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; padding: 10px; }
+  .config-section { margin-bottom: 8px; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+  .config-section h3 {
+    background: var(--surface2); padding: 5px 8px; font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent2);
+  }
+  .config-body { padding: 8px; }
+
+  .field-row { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
+  .field-row:last-child { margin-bottom: 0; }
+  .field-row label { font-size: 11px; color: var(--text-dim); min-width: 70px; flex-shrink: 0; }
+  .field-row input[type="number"], .field-row select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+    color: var(--text); padding: 3px 5px; font-size: 11px; width: 65px;
+  }
+  .field-row input:focus, .field-row select:focus { outline: none; border-color: var(--accent2); }
+  .field-row .unit { font-size: 10px; color: var(--text-dim); }
+  .field-row select { width: auto; min-width: 85px; }
+
+  .side-config { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 4px; }
+  .side-card { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 5px; }
+  .side-card .side-label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--accent2); margin-bottom: 3px; }
+  .side-card select, .side-card input[type="number"] {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+    color: var(--text); padding: 2px 4px; font-size: 11px; width: 100%; margin-bottom: 2px;
+  }
+  .side-card .mini-row { display: flex; align-items: center; gap: 3px; margin-bottom: 2px; }
+  .side-card .mini-row label { font-size: 10px; color: var(--text-dim); min-width: 38px; }
+  .side-card .mini-row input { width: 46px; }
+
+  /* ── Mode toggle ── */
+  .mode-toggle { display: flex; gap: 2px; margin-bottom: 8px; border-radius: 5px; overflow: hidden; border: 1px solid var(--border); }
+  .mode-toggle label {
+    flex: 1; text-align: center; padding: 6px 4px; font-size: 10px; font-weight: 600;
+    cursor: pointer; background: var(--bg); color: var(--text-dim); transition: all 0.2s;
+  }
+  .mode-toggle input { display: none; }
+  .mode-toggle input:checked + span { background: var(--surface2); color: var(--accent2); }
+  .mode-toggle label span { display: block; padding: 6px 4px; border-radius: 3px; }
+
+  /* ── Drop zones ── */
+  .drop-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .drop-pair.single { grid-template-columns: 1fr; }
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 6px; padding: 10px 6px;
+    text-align: center; cursor: pointer; transition: all 0.2s; position: relative;
+  }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent2); background: rgba(0,180,216,0.05); }
+  .drop-zone .dz-icon { font-size: 20px; margin-bottom: 2px; }
+  .drop-zone .dz-label { font-size: 10px; color: var(--text-dim); line-height: 1.3; }
+  .drop-zone .dz-file { font-size: 9px; color: var(--accent); margin-top: 3px; font-weight: 600; word-break: break-all; }
+  .drop-zone .dz-clear {
+    position: absolute; top: 3px; right: 5px; font-size: 12px; cursor: pointer;
+    color: var(--text-dim); background: none; border: none; line-height: 1;
+  }
+  .drop-zone .dz-clear:hover { color: var(--accent); }
+  .drop-zone.has-file { border-color: var(--accent2); border-style: solid; background: rgba(0,180,216,0.04); }
+
+  .mode-badge {
+    font-size: 10px; padding: 4px 8px; border-radius: 4px; text-align: center;
+    margin-bottom: 6px; font-weight: 600;
+  }
+  .mode-badge.same { background: rgba(0,180,216,0.15); color: var(--accent2); }
+  .mode-badge.diff { background: rgba(233,69,96,0.15); color: var(--accent); }
+
+  .btn {
+    background: var(--accent); color: #fff; border: none; border-radius: 5px;
+    padding: 7px 12px; font-size: 12px; font-weight: 600;
+    cursor: pointer; width: 100%; transition: background 0.2s; margin-bottom: 4px;
+  }
+  .btn:hover { background: #d63050; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.secondary { background: var(--surface2); }
+  .btn.secondary:hover { background: var(--border); }
+  .btn.download { background: #0a8; }
+  .btn.download:hover { background: #098; }
+
+  .hint { font-size: 9px; color: var(--text-dim); margin-top: 2px; }
+
+  /* ── Preview ── */
+  .preview-area { background: #111; overflow: auto; padding: 16px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; padding: 6px; margin-bottom: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-dim); }
+  .legend-swatch { width: 16px; height: 3px; border-radius: 2px; }
+  .legend-swatch.trim { background: #00ff88; }
+  .legend-swatch.fold { background: #ffaa00; }
+  .legend-swatch.bleed { background: #ff4444; }
+  .legend-swatch.sew { border-top: 2px dashed #ff69b4; height: 0; width: 16px; }
+  .legend-dot { width: 9px; height: 9px; border-radius: 50%; border: 2px solid #fff; background: transparent; }
+  .legend-swatch.pocket { background: rgba(255,170,0,0.5); }
+  .legend-swatch.hem { background: rgba(0,180,216,0.5); }
+
+  .preview-wrap { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+  .banner-group { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 16px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: rgba(0,0,0,0.3); }
+  .face-section { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .preview-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+  .preview-label span { color: var(--accent2); }
+  .canvas-wrap { position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.5); line-height: 0; }
+  .canvas-wrap canvas { display: block; }
+  .info-bar {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+    padding: 5px 10px; font-size: 10px; color: var(--text-dim); text-align: center;
+  }
+  .info-bar strong { color: var(--text); }
+
+  input[type="file"] { display: none; }
+  .placeholder-msg { color: var(--text-dim); font-size: 13px; margin-top: 60px; text-align: center; }
+  .placeholder-msg .big { font-size: 36px; margin-bottom: 6px; }
+  .setup-only { }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <h1>🏗️ Banner Setup Tool</h1>
+  <span class="subtitle">Double-Sided Vinyl — Pockets, Grommets &amp; Finishing</span>
+</div>
+
+<div class="main-layout">
+  <div class="config-panel">
+
+    <!-- Input Mode -->
+    <div class="mode-toggle">
+      <label><input type="radio" name="inputMode" value="setup" checked><span>🔧 Setup Files</span></label>
+      <label><input type="radio" name="inputMode" value="printready"><span>🖨️ Print-Ready</span></label>
+    </div>
+
+    <!-- File Input -->
+    <div class="config-section">
+      <h3>📄 Input Files</h3>
+      <div class="config-body">
+        <div class="drop-pair" id="dropPair">
+          <div class="drop-zone" id="dropFace">
+            <div class="dz-icon">📎</div>
+            <div class="dz-label">Drop PDF here<br><small>1 pg = same both sides<br>2 pg = pg1 face / pg2 back</small></div>
+            <div class="dz-file" id="faceFileName"></div>
+          </div>
+          <div class="drop-zone" id="dropBack">
+            <div class="dz-icon">📎</div>
+            <div class="dz-label">Back (Side 2)<br><small>Separate file — optional</small></div>
+            <div class="dz-file" id="backFileName"></div>
+          </div>
+        </div>
+        <input type="file" id="faceFileInput" accept=".pdf">
+        <input type="file" id="backFileInput" accept=".pdf">
+        <div class="mode-badge" id="modeBadge" style="display:none"></div>
+        <div class="hint" id="pdfInfo"></div>
+      </div>
+    </div>
+
+    <!-- Finished Size -->
+    <div class="config-section setup-only">
+      <h3>📐 Finished Banner Size</h3>
+      <div class="config-body">
+        <div class="field-row">
+          <label>Width</label>
+          <input type="number" id="finW" value="26" step="0.125" min="1">
+          <span class="unit">in</span>
+        </div>
+        <div class="field-row">
+          <label>Height</label>
+          <input type="number" id="finH" value="71" step="0.125" min="1">
+          <span class="unit">in</span>
+        </div>
+        <div class="hint" id="sizeHint"></div>
+      </div>
+    </div>
+
+    <!-- Bleed -->
+    <div class="config-section setup-only">
+      <h3>🔲 Bleed</h3>
+      <div class="config-body">
+        <div class="field-row">
+          <label>Input bleed</label>
+          <input type="number" id="inputBleed" value="0.5" step="0.125" min="0">
+          <span class="unit">in</span>
+        </div>
+        <div class="field-row">
+          <label>Output bleed</label>
+          <input type="number" id="outputBleed" value="0.5" step="0.125" min="0">
+          <span class="unit">in</span>
+        </div>
+        <div class="hint">Input = bleed on source PDFs. Output = bleed on final print file.</div>
+      </div>
+    </div>
+
+    <!-- Pockets & Hems -->
+    <div class="config-section setup-only">
+      <h3>🪡 Pockets &amp; Hems</h3>
+      <div class="config-body">
+        <div class="side-config" id="sideConfig"></div>
+        <div class="hint">Pocket material = depth + 1″ sew allowance. Hem = 1″ fold.</div>
+      </div>
+    </div>
+
+    <!-- Grommets -->
+    <div class="config-section setup-only">
+      <h3>⚙️ Grommets</h3>
+      <div class="config-body">
+        <div class="side-config" id="grommetConfig"></div>
+        <div class="hint">1.2″ dot, 0.5″ o/c from fold. Corners 2″ from edge.</div>
+      </div>
+    </div>
+
+    <button class="btn" id="generateBtn" disabled>Generate Preview</button>
+    <button class="btn download" id="downloadBtn" style="display:none">⬇ Download Print PDF</button>
+    <button class="btn secondary" id="clearBtn">Clear / Reset</button>
+  </div>
+
+  <!-- Preview -->
+  <div class="preview-area" id="previewArea">
+    <div class="legend" id="legendBar">
+      <div class="legend-item"><div class="legend-swatch trim"></div> Trim</div>
+      <div class="legend-item"><div class="legend-swatch fold"></div> Fold</div>
+      <div class="legend-item"><div class="legend-swatch sew"></div> Sew Line</div>
+      <div class="legend-item"><div class="legend-swatch bleed"></div> Material Edge</div>
+      <div class="legend-item"><div class="legend-dot"></div> Grommet</div>
+      <div class="legend-item"><div class="legend-swatch pocket"></div> Pocket</div>
+      <div class="legend-item"><div class="legend-swatch hem"></div> Hem</div>
+    </div>
+    <div class="preview-wrap" id="previewWrap">
+      <div class="placeholder-msg"><div class="big">🖼️</div>Drop PDF files and click <strong>Generate Preview</strong></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.worker.min.mjs';
+
+// ════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════
+const SIDES = ['top','bottom','left','right'];
+let facePdf = null;  // { doc, numPages, mediaW, mediaH, fileName }
+let backPdf = null;
+let inputMode = 'setup';
+
+// ════════════════════════════════════════════
+// BUILD SIDE CONFIG UI
+// ════════════════════════════════════════════
+const sideConfigEl = document.getElementById('sideConfig');
+const grommetConfigEl = document.getElementById('grommetConfig');
+
+SIDES.forEach(side => {
+  const defaultType = (side === 'top' || side === 'bottom') ? 'pocket' : 'none';
+  const card = document.createElement('div');
+  card.className = 'side-card';
+  card.innerHTML = `
+    <div class="side-label">${side}</div>
+    <select id="${side}Type">
+      <option value="none">None</option>
+      <option value="hem">Hem (1″)</option>
+      <option value="pocket"${defaultType==='pocket'?' selected':''}>Pocket</option>
+    </select>
+    <div class="mini-row" id="${side}PocketRow" style="display:${defaultType==='pocket'?'flex':'none'}">
+      <label>Depth</label>
+      <input type="number" id="${side}Pocket" value="3" step="0.25" min="0.5">
+      <span class="unit">in</span>
+    </div>`;
+  sideConfigEl.appendChild(card);
+  document.getElementById(`${side}Type`).addEventListener('change', function() {
+    document.getElementById(`${side}PocketRow`).style.display = this.value === 'pocket' ? 'flex' : 'none';
+  });
+
+  const defaultGrom = (side === 'top' || side === 'bottom') ? 'none' : 'none';
+  const gCard = document.createElement('div');
+  gCard.className = 'side-card';
+  gCard.innerHTML = `
+    <div class="side-label">${side}</div>
+    <select id="${side}Grommet">
+      <option value="none" selected>None</option>
+      <option value="corners">Corners</option>
+      <option value="every">Every X″</option>
+      <option value="center">Center</option>
+    </select>
+    <div class="mini-row" id="${side}GrommetSpacingRow" style="display:none">
+      <label>Every</label>
+      <input type="number" id="${side}GrommetSpacing" value="24" step="1" min="6">
+      <span class="unit">in</span>
+    </div>`;
+  grommetConfigEl.appendChild(gCard);
+  document.getElementById(`${side}Grommet`).addEventListener('change', function() {
+    document.getElementById(`${side}GrommetSpacingRow`).style.display = this.value === 'every' ? 'flex' : 'none';
+  });
+});
+
+// ════════════════════════════════════════════
+// DOM REFS
+// ════════════════════════════════════════════
+const dropFace = document.getElementById('dropFace');
+const dropBack = document.getElementById('dropBack');
+const dropPair = document.getElementById('dropPair');
+const faceFileInput = document.getElementById('faceFileInput');
+const backFileInput = document.getElementById('backFileInput');
+const faceFileNameEl = document.getElementById('faceFileName');
+const backFileNameEl = document.getElementById('backFileName');
+const modeBadge = document.getElementById('modeBadge');
+const pdfInfo = document.getElementById('pdfInfo');
+const sizeHint = document.getElementById('sizeHint');
+const generateBtn = document.getElementById('generateBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const clearBtn = document.getElementById('clearBtn');
+const previewWrap = document.getElementById('previewWrap');
+const legendBar = document.getElementById('legendBar');
+
+// ════════════════════════════════════════════
+// INPUT MODE TOGGLE
+// ════════════════════════════════════════════
+document.querySelectorAll('input[name="inputMode"]').forEach(r => {
+  r.addEventListener('change', () => {
+    inputMode = r.value;
+    const setupSections = document.querySelectorAll('.setup-only');
+    if (inputMode === 'printready') {
+      dropPair.classList.add('single');
+      dropBack.style.display = 'none';
+      setupSections.forEach(s => s.style.display = 'none');
+      legendBar.style.display = 'none';
+    } else {
+      dropPair.classList.remove('single');
+      dropBack.style.display = '';
+      setupSections.forEach(s => s.style.display = '');
+      legendBar.style.display = '';
+    }
+    updateModeBadge();
+  });
+});
+
+// ════════════════════════════════════════════
+// FILE DROP HANDLING
+// ════════════════════════════════════════════
+function setupDrop(zone, fileInput, onLoad) {
+  zone.addEventListener('click', (e) => {
+    if (e.target.classList.contains('dz-clear')) return;
+    fileInput.click();
+  });
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type === 'application/pdf') onLoad(f);
+  });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) onLoad(fileInput.files[0]); });
+}
+
+async function loadPdfFile(file) {
+  const data = await file.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data }).promise;
+  const page = await doc.getPage(1);
+  const vp = page.getViewport({ scale: 1 });
+  return {
+    doc,
+    numPages: doc.numPages,
+    mediaW: +(vp.width / 72).toFixed(4),
+    mediaH: +(vp.height / 72).toFixed(4),
+    fileName: file.name
+  };
+}
+
+setupDrop(dropFace, faceFileInput, async (file) => {
+  facePdf = await loadPdfFile(file);
+  faceFileNameEl.textContent = file.name;
+  dropFace.classList.add('has-file');
+  // Add clear button
+  if (!dropFace.querySelector('.dz-clear')) {
+    const cb = document.createElement('button');
+    cb.className = 'dz-clear'; cb.textContent = '✕'; cb.title = 'Remove';
+    cb.onclick = (e) => { e.stopPropagation(); clearFace(); };
+    dropFace.appendChild(cb);
+  }
+  autoFillDimensions();
+  updateModeBadge();
+  generateBtn.disabled = false;
+});
+
+setupDrop(dropBack, backFileInput, async (file) => {
+  backPdf = await loadPdfFile(file);
+  backFileNameEl.textContent = file.name;
+  dropBack.classList.add('has-file');
+  if (!dropBack.querySelector('.dz-clear')) {
+    const cb = document.createElement('button');
+    cb.className = 'dz-clear'; cb.textContent = '✕'; cb.title = 'Remove';
+    cb.onclick = (e) => { e.stopPropagation(); clearBack(); };
+    dropBack.appendChild(cb);
+  }
+  updateModeBadge();
+});
+
+function clearFace() {
+  facePdf = null;
+  faceFileNameEl.textContent = '';
+  dropFace.classList.remove('has-file');
+  const cb = dropFace.querySelector('.dz-clear'); if (cb) cb.remove();
+  updateModeBadge();
+  generateBtn.disabled = true;
+  downloadBtn.style.display = 'none';
+}
+
+function clearBack() {
+  backPdf = null;
+  backFileNameEl.textContent = '';
+  dropBack.classList.remove('has-file');
+  const cb = dropBack.querySelector('.dz-clear'); if (cb) cb.remove();
+  updateModeBadge();
+}
+
+function autoFillDimensions() {
+  if (!facePdf) return;
+  const ib = parseFloat(document.getElementById('inputBleed').value) || 0;
+  const fw = +(facePdf.mediaW - 2 * ib).toFixed(2);
+  const fh = +(facePdf.mediaH - 2 * ib).toFixed(2);
+  document.getElementById('finW').value = fw;
+  document.getElementById('finH').value = fh;
+  sizeHint.textContent = `PDF page: ${facePdf.mediaW}″ × ${facePdf.mediaH}″ → trim: ${fw}″ × ${fh}″`;
+}
+
+// Re-calc when input bleed changes
+document.getElementById('inputBleed').addEventListener('change', autoFillDimensions);
+
+function getDetectedMode() {
+  if (!facePdf) return 'none';
+  if (inputMode === 'printready') return 'printready';
+  if (backPdf) return 'diff-files';
+  if (facePdf.numPages >= 2) return 'diff-pages';
+  return 'same';
+}
+
+function updateModeBadge() {
+  const mode = getDetectedMode();
+  if (mode === 'none') { modeBadge.style.display = 'none'; return; }
+  modeBadge.style.display = '';
+  if (mode === 'printready') {
+    modeBadge.className = 'mode-badge same';
+    modeBadge.textContent = '🖨️ Print-ready → mirror for back';
+  } else if (mode === 'same') {
+    modeBadge.className = 'mode-badge same';
+    modeBadge.textContent = '📄 Double-Side Same (mirrored back)';
+  } else if (mode === 'diff-pages') {
+    modeBadge.className = 'mode-badge diff';
+    modeBadge.textContent = `📄📄 ${facePdf.numPages} pages — pg1 Face, pg2 Back`;
+  } else if (mode === 'diff-files') {
+    modeBadge.className = 'mode-badge diff';
+    modeBadge.textContent = '📄+📄 Double-Side Different';
+  }
+}
+
+// ════════════════════════════════════════════
+// CONFIG GATHERING
+// ════════════════════════════════════════════
+function getConfig() {
+  const finW = parseFloat(document.getElementById('finW').value) || 26;
+  const finH = parseFloat(document.getElementById('finH').value) || 71;
+  const inputBleed = parseFloat(document.getElementById('inputBleed').value) || 0;
+  const outputBleed = parseFloat(document.getElementById('outputBleed').value) || 0;
+
+  const sides = {};
+  SIDES.forEach(side => {
+    const type = document.getElementById(side + 'Type').value;
+    let depth = 0, extra = 0;
+    if (type === 'hem') extra = 1;
+    else if (type === 'pocket') { depth = parseFloat(document.getElementById(side + 'Pocket').value) || 3; extra = depth + 1; }
+    sides[side] = { type, depth, extra };
+  });
+
+  const grommets = {};
+  SIDES.forEach(side => {
+    const mode = document.getElementById(side + 'Grommet').value;
+    const spacing = parseFloat(document.getElementById(side + 'GrommetSpacing')?.value) || 24;
+    grommets[side] = { mode, spacing };
+  });
+
+  const eL = sides.left.extra, eR = sides.right.extra;
+  const eT = sides.top.extra, eB = sides.bottom.extra;
+  const totalW = finW + eL + eR + outputBleed * 2;
+  const totalH = finH + eT + eB + outputBleed * 2;
+
+  return { finW, finH, inputBleed, outputBleed, sides, grommets, eL, eR, eT, eB, totalW, totalH };
+}
+
+// ════════════════════════════════════════════
+// PDF PAGE RENDERING
+// ════════════════════════════════════════════
+async function renderPage(doc, pageNum, maxPx) {
+  const page = await doc.getPage(pageNum);
+  const vp0 = page.getViewport({ scale: 1 });
+  let scale = Math.min(maxPx / Math.max(vp0.width, vp0.height), 6);
+  let w = Math.round(vp0.width * scale);
+  let h = Math.round(vp0.height * scale);
+  if (w > 8000 || h > 8000) { scale = 8000 / Math.max(vp0.width, vp0.height); w = Math.round(vp0.width * scale); h = Math.round(vp0.height * scale); }
+  if (w * h > 16_000_000) { const s2 = Math.sqrt(16_000_000 / (w * h)); scale *= s2; w = Math.round(vp0.width * scale); h = Math.round(vp0.height * scale); }
+  const vp = page.getViewport({ scale });
+  const c = new OffscreenCanvas(Math.round(vp.width), Math.round(vp.height));
+  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  return c;
+}
+
+// ════════════════════════════════════════════
+// GET FACE / BACK IMAGES
+// ════════════════════════════════════════════
+async function getFaceBackImages(maxPx) {
+  const mode = getDetectedMode();
+  const faceImg = await renderPage(facePdf.doc, 1, maxPx);
+  let backImg;
+  let isSame = false;
+
+  if (mode === 'diff-files') {
+    backImg = await renderPage(backPdf.doc, 1, maxPx);
+  } else if (mode === 'diff-pages') {
+    backImg = await renderPage(facePdf.doc, 2, maxPx);
+  } else {
+    backImg = faceImg;
+    isSame = true;
+  }
+  return { faceImg, backImg, isSame };
+}
+
+// ════════════════════════════════════════════
+// GROMMET POSITIONS
+// ════════════════════════════════════════════
+function grommetPositions(mode, spacing, length) {
+  const CI = 2;
+  if (mode === 'none') return [];
+  if (mode === 'center') return [length / 2];
+  if (mode === 'corners') return [CI, length - CI];
+  const pts = [CI];
+  const inner = length - 2 * CI;
+  if (inner > 0) {
+    const n = Math.max(1, Math.round(inner / spacing));
+    const step = inner / n;
+    for (let i = 1; i < n; i++) pts.push(CI + i * step);
+  }
+  pts.push(length - CI);
+  return pts;
+}
+
+// ════════════════════════════════════════════
+// DRAW IMAGE ALIGNED — positions image so its trim aligns with output trim
+// No stretching: image drawn at correct aspect with trim aligned
+// ════════════════════════════════════════════
+function drawImageAligned(ctx, img, ppi, trimX, trimY, finW, finH, inputBleed, mirrored) {
+  const imgW = (finW + 2 * inputBleed) * ppi;
+  const imgH = (finH + 2 * inputBleed) * ppi;
+  const imgX = trimX - inputBleed * ppi;
+  const imgY = trimY - inputBleed * ppi;
+
+  ctx.save();
+  if (mirrored) {
+    ctx.translate(imgX + imgW, imgY);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, 0, 0, imgW, imgH);
+  } else {
+    ctx.drawImage(img, imgX, imgY, imgW, imgH);
+  }
+  ctx.restore();
+}
+
+// ════════════════════════════════════════════
+// DRAW FACE — preview canvas with all overlays
+// ════════════════════════════════════════════
+function drawFace(canvas, thisImg, otherImg, cfg, label, thisMirrored, otherMirrored) {
+  const { finW, finH, inputBleed, outputBleed, sides, grommets, eL, eR, eT, eB, totalW, totalH } = cfg;
+
+  const s = Math.min(canvas.width / totalW, canvas.height / totalH);
+  const offX = (canvas.width - totalW * s) / 2;
+  const offY = (canvas.height - totalH * s) / 2;
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  ctx.translate(offX, offY);
+
+  // White base for print area
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, totalW * s, totalH * s);
+
+  const trimX = (outputBleed + eL) * s;
+  const trimY = (outputBleed + eT) * s;
+  const trimW = finW * s;
+  const trimH = finH * s;
+  const foldTop = trimY;
+  const foldBot = trimY + trimH;
+  const foldLeft = trimX;
+  const foldRight = trimX + trimW;
+
+  // ── THIS face's artwork in center zone ONLY (clipped between fold lines) ──
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, foldTop, totalW * s, foldBot - foldTop);
+  ctx.clip();
+  drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+  ctx.restore();
+
+  // ── Pocket / hem zones: OTHER side's art, rotated 180° ──
+  // Top — rotated 180° and placed head-to-head at foldTop
+  if (eT > 0) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, totalW * s, foldTop); ctx.clip();
+    ctx.translate(totalW * s, 2 * foldTop);
+    ctx.scale(-1, -1);
+    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, otherMirrored);
+    ctx.restore();
+  }
+  // Bottom — rotated 180° and placed foot-to-foot at foldBot
+  if (eB > 0) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, foldBot, totalW * s, (outputBleed + eB) * s); ctx.clip();
+    ctx.translate(totalW * s, 2 * foldBot);
+    ctx.scale(-1, -1);
+    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, otherMirrored);
+    ctx.restore();
+  }
+
+  // ── Side bleed strips: extend center image into output bleed ──
+  if (outputBleed > 0) {
+    // Left bleed
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, foldTop, foldLeft, foldBot - foldTop); ctx.clip();
+    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+    ctx.restore();
+    // Right bleed
+    ctx.save();
+    ctx.beginPath(); ctx.rect(foldRight, foldTop, (outputBleed + eR) * s, foldBot - foldTop); ctx.clip();
+    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+    ctx.restore();
+  }
+
+  // ── Overlays ──
+  // Bleed zone tint
+  if (outputBleed > 0) {
+    ctx.fillStyle = 'rgba(255,68,68,0.08)';
+    ctx.fillRect(0, 0, totalW * s, outputBleed * s);
+    ctx.fillRect(0, (totalH - outputBleed) * s, totalW * s, outputBleed * s);
+    ctx.fillRect(0, outputBleed * s, outputBleed * s, (totalH - outputBleed * 2) * s);
+    ctx.fillRect((totalW - outputBleed) * s, outputBleed * s, outputBleed * s, (totalH - outputBleed * 2) * s);
+  }
+
+  // Pocket/hem zone overlays
+  const zoneOverlay = (x, y, w, h, type) => {
+    ctx.fillStyle = type === 'pocket' ? 'rgba(255,170,0,0.15)' : 'rgba(0,180,216,0.15)';
+    ctx.fillRect(x, y, w, h);
+    if (type === 'pocket') {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      ctx.strokeStyle = 'rgba(255,170,0,0.12)'; ctx.lineWidth = 1;
+      for (let i = -Math.max(w,h); i < Math.max(w,h)*2; i += 8) {
+        ctx.beginPath(); ctx.moveTo(x+i, y); ctx.lineTo(x+i+Math.max(w,h), y+Math.max(w,h)); ctx.stroke();
+      }
+      ctx.restore();
+    }
+  };
+  if (eT > 0) zoneOverlay(outputBleed*s, outputBleed*s, (totalW-outputBleed*2)*s, eT*s, sides.top.type);
+  if (eB > 0) zoneOverlay(outputBleed*s, (totalH-outputBleed-eB)*s, (totalW-outputBleed*2)*s, eB*s, sides.bottom.type);
+  if (eL > 0) zoneOverlay(outputBleed*s, outputBleed*s, eL*s, (totalH-outputBleed*2)*s, sides.left.type);
+  if (eR > 0) zoneOverlay((totalW-outputBleed-eR)*s, outputBleed*s, eR*s, (totalH-outputBleed*2)*s, sides.right.type);
+
+  // Material edge (red)
+  ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2; ctx.setLineDash([]);
+  ctx.strokeRect(1, 1, totalW*s-2, totalH*s-2);
+
+  // Bleed boundary (red dashed)
+  if (outputBleed > 0) {
+    ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+    ctx.strokeRect(outputBleed*s, outputBleed*s, (totalW - outputBleed*2)*s, (totalH - outputBleed*2)*s);
+    ctx.setLineDash([]);
+  }
+
+  // Fold lines (orange dashed)
+  ctx.strokeStyle = '#ffaa00'; ctx.lineWidth = 1.5; ctx.setLineDash([8, 5]);
+  if (eT > 0) { ctx.beginPath(); ctx.moveTo(0, foldTop); ctx.lineTo(totalW*s, foldTop); ctx.stroke(); }
+  if (eB > 0) { ctx.beginPath(); ctx.moveTo(0, foldBot); ctx.lineTo(totalW*s, foldBot); ctx.stroke(); }
+  if (eL > 0) { ctx.beginPath(); ctx.moveTo(foldLeft, 0); ctx.lineTo(foldLeft, totalH*s); ctx.stroke(); }
+  if (eR > 0) { ctx.beginPath(); ctx.moveTo(foldRight, 0); ctx.lineTo(foldRight, totalH*s); ctx.stroke(); }
+  ctx.setLineDash([]);
+
+  // Trim line (green)
+  ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 2.5;
+  ctx.strokeRect(trimX, trimY, trimW, trimH);
+
+  // Sew lines (pink dashed)
+  ctx.strokeStyle = '#ff69b4'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+  if (sides.top.type === 'pocket') {
+    const y = foldTop + sides.top.depth * s;
+    ctx.beginPath(); ctx.moveTo(trimX, y); ctx.lineTo(trimX + trimW, y); ctx.stroke();
+  }
+  if (sides.bottom.type === 'pocket') {
+    const y = foldBot - sides.bottom.depth * s;
+    ctx.beginPath(); ctx.moveTo(trimX, y); ctx.lineTo(trimX + trimW, y); ctx.stroke();
+  }
+  if (sides.left.type === 'pocket') {
+    const x = foldLeft + sides.left.depth * s;
+    ctx.beginPath(); ctx.moveTo(x, trimY); ctx.lineTo(x, trimY + trimH); ctx.stroke();
+  }
+  if (sides.right.type === 'pocket') {
+    const x = foldRight - sides.right.depth * s;
+    ctx.beginPath(); ctx.moveTo(x, trimY); ctx.lineTo(x, trimY + trimH); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Grommets
+  const GR = (1.2/2)*s, GI = 0.5*s;
+  function grom(cx, cy) {
+    ctx.beginPath(); ctx.arc(cx,cy,GR,0,Math.PI*2);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,GR*0.3,0,Math.PI*2);
+    ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx-GR*0.55,cy); ctx.lineTo(cx+GR*0.55,cy);
+    ctx.moveTo(cx,cy-GR*0.55); ctx.lineTo(cx,cy+GR*0.55);
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.stroke();
+  }
+  if (grommets.top.mode !== 'none' && eT > 0) {
+    const gy = foldTop - GI;
+    for (const p of grommetPositions(grommets.top.mode, grommets.top.spacing, finW)) grom(trimX + p*s, gy);
+  }
+  if (grommets.bottom.mode !== 'none' && eB > 0) {
+    const gy = foldBot + GI;
+    for (const p of grommetPositions(grommets.bottom.mode, grommets.bottom.spacing, finW)) grom(trimX + p*s, gy);
+  }
+  if (grommets.left.mode !== 'none' && eL > 0) {
+    const gx = foldLeft - GI;
+    for (const p of grommetPositions(grommets.left.mode, grommets.left.spacing, finH)) grom(gx, trimY + p*s);
+  }
+  if (grommets.right.mode !== 'none' && eR > 0) {
+    const gx = foldRight + GI;
+    for (const p of grommetPositions(grommets.right.mode, grommets.right.spacing, finH)) grom(gx, trimY + p*s);
+  }
+
+  // Labels
+  const fs = Math.max(10, Math.min(15, s * 0.8));
+  ctx.font = `bold ${fs}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+  function pill(text, x, y, rot = 0) {
+    ctx.save(); ctx.translate(x, y); if (rot) ctx.rotate(rot);
+    const m = ctx.measureText(text);
+    const pw = m.width + 8, ph = fs + 6;
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.beginPath(); ctx.roundRect(-pw/2, -ph/2, pw, ph, 3); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillText(text, 0, 1);
+    ctx.restore();
+  }
+
+  pill(`${finW}″ × ${finH}″ finished`, trimX + trimW/2, trimY + trimH/2);
+  pill(`Print: ${totalW.toFixed(1)}″ × ${totalH.toFixed(1)}″`, totalW*s/2, totalH*s - fs);
+  if (outputBleed > 0) pill(`${outputBleed}″ bleed`, totalW*s/2, outputBleed*s/2);
+
+  if (sides.top.type === 'pocket') pill(`${sides.top.depth}″ pkt + 1″ sew`, totalW*s/2, (outputBleed + eT/2)*s);
+  else if (sides.top.type === 'hem') pill('1″ hem', totalW*s/2, (outputBleed + eT/2)*s);
+  if (sides.bottom.type === 'pocket') pill(`${sides.bottom.depth}″ pkt + 1″ sew`, totalW*s/2, (totalH - outputBleed - eB/2)*s);
+  else if (sides.bottom.type === 'hem') pill('1″ hem', totalW*s/2, (totalH - outputBleed - eB/2)*s);
+  if (sides.left.type === 'pocket') pill(`${sides.left.depth}″p`, (outputBleed + eL/2)*s, totalH*s/2, -Math.PI/2);
+  else if (sides.left.type === 'hem') pill('1″h', (outputBleed + eL/2)*s, totalH*s/2, -Math.PI/2);
+  if (sides.right.type === 'pocket') pill(`${sides.right.depth}″p`, (totalW - outputBleed - eR/2)*s, totalH*s/2, Math.PI/2);
+  else if (sides.right.type === 'hem') pill('1″h', (totalW - outputBleed - eR/2)*s, totalH*s/2, Math.PI/2);
+
+  // Sew line labels
+  ctx.font = `${Math.max(9, fs*0.7)}px -apple-system, sans-serif`;
+  if (sides.top.type === 'pocket') pill('sew', trimX + trimW - 30, foldTop + sides.top.depth*s);
+  if (sides.bottom.type === 'pocket') pill('sew', trimX + trimW - 30, foldBot - sides.bottom.depth*s);
+
+  // Face tag
+  ctx.font = `bold ${Math.max(13, fs*1.2)}px -apple-system, sans-serif`;
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = '#000'; ctx.fillText(label, trimX + trimW/2, trimY + fs*2.5);
+  ctx.fillStyle = '#fff'; ctx.fillText(label, trimX + trimW/2, trimY + fs*2.5);
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+}
+
+// ════════════════════════════════════════════
+// BUILD CLEAN ARTWORK — no overlays, for PDF download
+// ════════════════════════════════════════════
+function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisMirrored, otherMirrored) {
+  const { finW, finH, inputBleed, outputBleed, eL, eR, eT, eB, totalW, totalH } = cfg;
+
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  const ppi = w / totalW; // pixels per inch
+
+  const trimX = (outputBleed + eL) * ppi;
+  const trimY = (outputBleed + eT) * ppi;
+  const trimW = finW * ppi;
+  const trimH = finH * ppi;
+  const foldTop = trimY;
+  const foldBot = trimY + trimH;
+  const foldLeft = trimX;
+  const foldRight = trimX + trimW;
+
+  // White base
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+
+  // ── This face's art in center zone ONLY (clipped between fold lines) ──
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, foldTop, w, foldBot - foldTop); ctx.clip();
+  drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+  ctx.restore();
+
+  // ── Pocket zones with other side's art, rotated 180° ──
+  if (eT > 0) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, w, foldTop); ctx.clip();
+    ctx.translate(w, 2 * foldTop);
+    ctx.scale(-1, -1);
+    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, otherMirrored);
+    ctx.restore();
+  }
+  if (eB > 0) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, foldBot, w, h - foldBot); ctx.clip();
+    ctx.translate(w, 2 * foldBot);
+    ctx.scale(-1, -1);
+    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, otherMirrored);
+    ctx.restore();
+  }
+
+  // ── Side bleed strips: extend center image ──
+  if (outputBleed > 0) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, foldTop, foldLeft, foldBot - foldTop); ctx.clip();
+    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(foldRight, foldTop, w - foldRight, foldBot - foldTop); ctx.clip();
+    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+    ctx.restore();
+  }
+
+  return c;
+}
+
+function canvasToDataURL(canvas) {
+  if (canvas instanceof OffscreenCanvas) {
+    const c = document.createElement('canvas');
+    c.width = canvas.width; c.height = canvas.height;
+    c.getContext('2d').drawImage(canvas, 0, 0);
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+// ════════════════════════════════════════════
+// GENERATE PREVIEW
+// ════════════════════════════════════════════
+generateBtn.addEventListener('click', async () => {
+  if (!facePdf) return;
+  generateBtn.disabled = true;
+  generateBtn.textContent = 'Rendering…';
+
+  try {
+    const mode = getDetectedMode();
+
+    if (mode === 'printready') {
+      await generatePrintReadyPreview();
+    } else {
+      await generateSetupPreview();
+    }
+
+    downloadBtn.style.display = '';
+  } catch (err) {
+    console.error(err);
+    previewWrap.innerHTML = `<div class="placeholder-msg" style="color:var(--accent);">Error: ${err.message}</div>`;
+  }
+
+  generateBtn.disabled = false;
+  generateBtn.textContent = 'Generate Preview';
+});
+
+async function generateSetupPreview() {
+  const cfg = getConfig();
+  const { finW, finH, totalW, totalH } = cfg;
+
+  const previewArea = document.getElementById('previewArea');
+  const availW = previewArea.clientWidth - 40;
+  const aspect = totalW / totalH;
+
+  let canvW, canvH;
+  if (aspect >= 1) {
+    canvW = Math.min(availW, 1600);
+    canvH = Math.round(canvW / aspect);
+  } else {
+    canvH = Math.min(Math.round(availW / aspect), 1400);
+    canvW = Math.round(canvH * aspect);
+    if (canvW > availW) { canvW = availW; canvH = Math.round(canvW / aspect); }
+  }
+  canvW = Math.max(canvW, 300);
+  canvH = Math.max(canvH, 150);
+
+  const maxRenderPx = Math.max(canvW, canvH) * 2.5;
+  const { faceImg, backImg, isSame } = await getFaceBackImages(maxRenderPx);
+
+  const frontThisMirrored = false;
+  const frontOtherMirrored = isSame;
+  const backThisMirrored = isSame;
+  const backOtherMirrored = false;
+
+  previewWrap.innerHTML = '';
+
+  const group = document.createElement('div');
+  group.className = 'banner-group';
+
+  // FRONT print sheet
+  const frontSection = document.createElement('div');
+  frontSection.className = 'face-section';
+  const frontLabel = document.createElement('div');
+  frontLabel.className = 'preview-label';
+  frontLabel.innerHTML = `▼ <span>FRONT</span> Print Sheet — Side 1`;
+  frontSection.appendChild(frontLabel);
+
+  const frontWrap = document.createElement('div');
+  frontWrap.className = 'canvas-wrap';
+  const frontCanvas = document.createElement('canvas');
+  frontCanvas.width = canvW; frontCanvas.height = canvH;
+  frontWrap.appendChild(frontCanvas);
+  frontSection.appendChild(frontWrap);
+
+  drawFace(frontCanvas, faceImg, backImg, cfg, 'FRONT', frontThisMirrored, frontOtherMirrored);
+
+  const frontInfo = document.createElement('div');
+  frontInfo.className = 'info-bar';
+  frontInfo.innerHTML = `<strong>Front (Side 1)</strong> — Finished: <strong>${finW}″ × ${finH}″</strong> — Print sheet: <strong>${totalW.toFixed(1)}″ × ${totalH.toFixed(1)}″</strong>`;
+  frontSection.appendChild(frontInfo);
+  group.appendChild(frontSection);
+
+  // BACK print sheet
+  const backSection = document.createElement('div');
+  backSection.className = 'face-section';
+  const backLbl = document.createElement('div');
+  backLbl.className = 'preview-label';
+  backLbl.innerHTML = isSame
+    ? `▼ <span>BACK</span> Print Sheet — Mirrored from Face`
+    : `▼ <span>BACK</span> Print Sheet — Side 2`;
+  backSection.appendChild(backLbl);
+
+  const backWrap = document.createElement('div');
+  backWrap.className = 'canvas-wrap';
+  const backCanvas = document.createElement('canvas');
+  backCanvas.width = canvW; backCanvas.height = canvH;
+  backWrap.appendChild(backCanvas);
+  backSection.appendChild(backWrap);
+
+  drawFace(backCanvas, backImg, faceImg, cfg,
+    isSame ? 'BACK (mirrored)' : 'BACK',
+    backThisMirrored, backOtherMirrored);
+
+  const backInfo = document.createElement('div');
+  backInfo.className = 'info-bar';
+  backInfo.innerHTML = isSame
+    ? `<strong>Back (Side 2)</strong> — Double-sided same, mirrored horizontally`
+    : `<strong>Back (Side 2)</strong> — Separate artwork`;
+  backSection.appendChild(backInfo);
+  group.appendChild(backSection);
+
+  previewWrap.appendChild(group);
+}
+
+async function generatePrintReadyPreview() {
+  const faceImg = await renderPage(facePdf.doc, 1, 2000);
+  const w = faceImg.width, h = faceImg.height;
+
+  previewWrap.innerHTML = '';
+  const group = document.createElement('div');
+  group.className = 'banner-group';
+
+  // Front (as-is)
+  const frontSection = document.createElement('div');
+  frontSection.className = 'face-section';
+  frontSection.innerHTML = `<div class="preview-label">▼ <span>FRONT</span> — Original</div>`;
+  const fc = document.createElement('canvas');
+  const maxW = document.getElementById('previewArea').clientWidth - 80;
+  const aspect = w / h;
+  let dispW = Math.min(maxW, 800);
+  let dispH = Math.round(dispW / aspect);
+  fc.width = dispW; fc.height = dispH;
+  fc.getContext('2d').drawImage(faceImg, 0, 0, dispW, dispH);
+  const fw = document.createElement('div'); fw.className = 'canvas-wrap'; fw.appendChild(fc);
+  frontSection.appendChild(fw);
+  frontSection.innerHTML += `<div class="info-bar"><strong>Page: ${facePdf.mediaW}″ × ${facePdf.mediaH}″</strong></div>`;
+  group.appendChild(frontSection);
+
+  // Back (mirrored)
+  const backSection = document.createElement('div');
+  backSection.className = 'face-section';
+  backSection.innerHTML = `<div class="preview-label">▼ <span>BACK</span> — Mirrored</div>`;
+  const bc = document.createElement('canvas');
+  bc.width = dispW; bc.height = dispH;
+  const bctx = bc.getContext('2d');
+  bctx.translate(dispW, 0);
+  bctx.scale(-1, 1);
+  bctx.drawImage(faceImg, 0, 0, dispW, dispH);
+  const bw = document.createElement('div'); bw.className = 'canvas-wrap'; bw.appendChild(bc);
+  backSection.appendChild(bw);
+  const bi = document.createElement('div'); bi.className = 'info-bar';
+  bi.innerHTML = '<strong>Horizontally mirrored for double-side same</strong>';
+  backSection.appendChild(bi);
+  group.appendChild(backSection);
+
+  previewWrap.appendChild(group);
+}
+
+// ════════════════════════════════════════════
+// DOWNLOAD PRINT PDF
+// ════════════════════════════════════════════
+downloadBtn.addEventListener('click', async () => {
+  if (!facePdf) return;
+  downloadBtn.disabled = true;
+  downloadBtn.textContent = 'Building PDF…';
+
+  try {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      alert('jsPDF library failed to load. Check your internet connection and reload the page.');
+      downloadBtn.disabled = false;
+      downloadBtn.textContent = '⬇ Download Print PDF';
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const mode = getDetectedMode();
+
+    if (mode === 'printready') {
+      await downloadPrintReady(jsPDF);
+    } else {
+      await downloadSetup(jsPDF);
+    }
+  } catch (err) {
+    console.error(err);
+    alert('PDF generation error: ' + err.message);
+  }
+
+  downloadBtn.disabled = false;
+  downloadBtn.textContent = '⬇ Download Print PDF';
+});
+
+async function downloadPrintReady(jsPDF) {
+  const w = facePdf.mediaW, h = facePdf.mediaH;
+  const orient = w >= h ? 'landscape' : 'portrait';
+  const pdf = new jsPDF({ orientation: orient, unit: 'in', format: [w, h] });
+
+  // Render at max feasible resolution
+  const maxPx = Math.min(8000, Math.round(Math.sqrt(16_000_000 * (Math.max(w,h) / Math.min(w,h)))));
+  const faceImg = await renderPage(facePdf.doc, 1, maxPx);
+
+  // Single page — printer mirrors for the back
+  downloadBtn.textContent = 'Building…';
+  const frontData = canvasToDataURL(faceImg);
+  pdf.addImage(frontData, 'JPEG', 0, 0, w, h, undefined, 'FAST');
+
+  const baseName = facePdf.fileName.replace(/\.pdf$/i, '');
+  pdf.save(`${baseName} - double side same.pdf`);
+}
+
+async function downloadSetup(jsPDF) {
+  const cfg = getConfig();
+  const { totalW, totalH } = cfg;
+  const orient = totalW >= totalH ? 'landscape' : 'portrait';
+  const pdf = new jsPDF({ orientation: orient, unit: 'in', format: [totalW, totalH] });
+
+  // Calculate max feasible canvas size
+  const MAX_PX = 16_000_000;
+  const MAX_SIDE = 8000;
+  let targetDPI = 150;
+  let imgW = Math.round(totalW * targetDPI);
+  let imgH = Math.round(totalH * targetDPI);
+  if (imgW > MAX_SIDE) { targetDPI = MAX_SIDE / totalW; imgW = Math.round(totalW * targetDPI); imgH = Math.round(totalH * targetDPI); }
+  if (imgH > MAX_SIDE) { targetDPI = MAX_SIDE / totalH; imgW = Math.round(totalW * targetDPI); imgH = Math.round(totalH * targetDPI); }
+  if (imgW * imgH > MAX_PX) {
+    const sc = Math.sqrt(MAX_PX / (imgW * imgH));
+    imgW = Math.round(imgW * sc);
+    imgH = Math.round(imgH * sc);
+  }
+
+  const maxRenderPx = Math.min(Math.max(imgW, imgH), MAX_SIDE);
+  const { faceImg, backImg, isSame } = await getFaceBackImages(maxRenderPx);
+
+  const frontMirrored = false;
+  const backMirrored = isSame;
+
+  // ── Front print sheet ──
+  downloadBtn.textContent = 'Building… Front';
+  const frontCanvas = buildCleanArtwork(imgW, imgH, faceImg, backImg, cfg, frontMirrored, isSame);
+  pdf.addImage(canvasToDataURL(frontCanvas), 'JPEG', 0, 0, totalW, totalH, undefined, 'FAST');
+
+  // ── Back print sheet — only for double-side different ──
+  if (!isSame) {
+    downloadBtn.textContent = 'Building… Back';
+    pdf.addPage([totalW, totalH], orient);
+    const backCanvas = buildCleanArtwork(imgW, imgH, backImg, faceImg, cfg, backMirrored, false);
+    pdf.addImage(canvasToDataURL(backCanvas), 'JPEG', 0, 0, totalW, totalH, undefined, 'FAST');
+  }
+
+  await new Promise(r => setTimeout(r, 50));
+
+  const baseName = facePdf.fileName.replace(/\.pdf$/i, '');
+  pdf.save(`${baseName} - banner print.pdf`);
+}
+
+// ════════════════════════════════════════════
+// CLEAR / RESET
+// ════════════════════════════════════════════
+clearBtn.addEventListener('click', () => {
+  clearFace();
+  clearBack();
+  pdfInfo.textContent = '';
+  sizeHint.textContent = '';
+  document.getElementById('finW').value = '26';
+  document.getElementById('finH').value = '71';
+  previewWrap.innerHTML = '<div class="placeholder-msg"><div class="big">🖼️</div>Drop PDF files and click <strong>Generate Preview</strong></div>';
+});
+</script>
+</body>
+</html>
