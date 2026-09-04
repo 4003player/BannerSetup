@@ -180,12 +180,12 @@
       <div class="config-body">
         <div class="field-row">
           <label>Width</label>
-          <input type="number" id="finW" value="26" step="0.125" min="1">
+          <input type="number" id="finW" value="" step="0.125" min="1" placeholder="—">
           <span class="unit">in</span>
         </div>
         <div class="field-row">
           <label>Height</label>
-          <input type="number" id="finH" value="71" step="0.125" min="1">
+          <input type="number" id="finH" value="" step="0.125" min="1" placeholder="—">
           <span class="unit">in</span>
         </div>
         <div class="hint" id="sizeHint"></div>
@@ -198,12 +198,12 @@
       <div class="config-body">
         <div class="field-row">
           <label>Input bleed</label>
-          <input type="number" id="inputBleed" value="0.5" step="0.125" min="0">
+          <input type="number" id="inputBleed" value="" step="0.125" min="0" placeholder="0">
           <span class="unit">in</span>
         </div>
         <div class="field-row">
           <label>Output bleed</label>
-          <input type="number" id="outputBleed" value="0.5" step="0.125" min="0">
+          <input type="number" id="outputBleed" value="" step="0.125" min="0" placeholder="0">
           <span class="unit">in</span>
         </div>
         <div class="hint">Input = bleed on source PDFs. Output = bleed on final print file.</div>
@@ -258,7 +258,7 @@ let inputMode = 'setup';
 const sideConfigEl = document.getElementById('sideConfig');
 
 SIDES.forEach(side => {
-  const defaultType = (side === 'top' || side === 'bottom') ? 'pocket' : 'none';
+  const defaultType = 'none';
   const card = document.createElement('div');
   card.className = 'side-card';
   card.innerHTML = `
@@ -340,6 +340,9 @@ function setupDrop(zone, fileInput, onLoad) {
 
 async function loadPdfFile(file) {
   const data = await file.arrayBuffer();
+  // Copy the raw bytes BEFORE giving data to PDF.js — getDocument transfers
+  // the ArrayBuffer to its worker, which detaches the original.
+  const rawBytes = new Uint8Array(data.slice(0));
   const doc = await pdfjsLib.getDocument({ data }).promise;
   // Read dimensions for ALL pages (not just page 1)
   const pages = [];
@@ -351,7 +354,6 @@ async function loadPdfFile(file) {
     pages.push({ pageNum: p, mediaW, mediaH });
   }
   // Scan raw bytes for TrimBox entries
-  const rawBytes = new Uint8Array(data);
   const trimBoxes = findTrimBoxes(rawBytes);
   // Match TrimBox to page 1 for auto-fill
   const p1 = pages[0];
@@ -431,32 +433,44 @@ function matchTrimBox(trimBoxes, pageW, pageH) {
 }
 
 setupDrop(dropFace, faceFileInput, async (file) => {
-  facePdf = await loadPdfFile(file);
-  faceFileNameEl.textContent = file.name;
-  dropFace.classList.add('has-file');
-  // Add clear button
-  if (!dropFace.querySelector('.dz-clear')) {
-    const cb = document.createElement('button');
-    cb.className = 'dz-clear'; cb.textContent = '✕'; cb.title = 'Remove';
-    cb.onclick = (e) => { e.stopPropagation(); clearFace(); };
-    dropFace.appendChild(cb);
+  try {
+    facePdf = await loadPdfFile(file);
+    faceFileNameEl.textContent = file.name;
+    dropFace.classList.add('has-file');
+    // Add clear button
+    if (!dropFace.querySelector('.dz-clear')) {
+      const cb = document.createElement('button');
+      cb.className = 'dz-clear'; cb.textContent = '✕'; cb.title = 'Remove';
+      cb.onclick = (e) => { e.stopPropagation(); clearFace(); };
+      dropFace.appendChild(cb);
+    }
+    autoFillDimensions();
+    updateModeBadge();
+    generateBtn.disabled = false;
+  } catch (err) {
+    console.error('Error loading face PDF:', err);
+    pdfInfo.textContent = 'Error loading PDF: ' + err.message;
+    pdfInfo.style.color = 'var(--accent)';
   }
-  autoFillDimensions();
-  updateModeBadge();
-  generateBtn.disabled = false;
 });
 
 setupDrop(dropBack, backFileInput, async (file) => {
-  backPdf = await loadPdfFile(file);
-  backFileNameEl.textContent = file.name;
-  dropBack.classList.add('has-file');
-  if (!dropBack.querySelector('.dz-clear')) {
-    const cb = document.createElement('button');
-    cb.className = 'dz-clear'; cb.textContent = '✕'; cb.title = 'Remove';
-    cb.onclick = (e) => { e.stopPropagation(); clearBack(); };
-    dropBack.appendChild(cb);
+  try {
+    backPdf = await loadPdfFile(file);
+    backFileNameEl.textContent = file.name;
+    dropBack.classList.add('has-file');
+    if (!dropBack.querySelector('.dz-clear')) {
+      const cb = document.createElement('button');
+      cb.className = 'dz-clear'; cb.textContent = '✕'; cb.title = 'Remove';
+      cb.onclick = (e) => { e.stopPropagation(); clearBack(); };
+      dropBack.appendChild(cb);
+    }
+    updateModeBadge();
+  } catch (err) {
+    console.error('Error loading back PDF:', err);
+    pdfInfo.textContent = 'Error loading back PDF: ' + err.message;
+    pdfInfo.style.color = 'var(--accent)';
   }
-  updateModeBadge();
 });
 
 function clearFace() {
@@ -489,11 +503,15 @@ function autoFillDimensions() {
     sizeHint.textContent = `PDF: ${facePdf.mediaW}″ × ${facePdf.mediaH}″ — TrimBox: ${fw}″ × ${fh}″` +
       ` — Bleed: L${facePdf.bleedL.toFixed(2)}″ R${facePdf.bleedR.toFixed(2)}″ T${facePdf.bleedT.toFixed(2)}″ B${facePdf.bleedB.toFixed(2)}″`;
   } else {
-    // No TrimBox — fall back to uniform bleed subtraction
+    // No TrimBox — use MediaBox minus whatever input bleed the user entered
     const ib = parseFloat(document.getElementById('inputBleed').value) || 0;
     fw = +(facePdf.mediaW - 2 * ib).toFixed(2);
     fh = +(facePdf.mediaH - 2 * ib).toFixed(2);
-    sizeHint.textContent = `PDF page: ${facePdf.mediaW}″ × ${facePdf.mediaH}″ → trim: ${fw}″ × ${fh}″ (no TrimBox — using uniform bleed)`;
+    if (ib > 0) {
+      sizeHint.textContent = `PDF: ${facePdf.mediaW}″ × ${facePdf.mediaH}″ — no TrimBox — using ${ib}″ bleed → ${fw}″ × ${fh}″`;
+    } else {
+      sizeHint.textContent = `PDF: ${facePdf.mediaW}″ × ${facePdf.mediaH}″ — no TrimBox found. Set bleed if needed.`;
+    }
   }
   document.getElementById('finW').value = fw;
   document.getElementById('finH').value = fh;
@@ -1169,9 +1187,12 @@ clearBtn.addEventListener('click', () => {
   clearFace();
   clearBack();
   pdfInfo.textContent = '';
+  pdfInfo.style.color = '';
   sizeHint.textContent = '';
-  document.getElementById('finW').value = '26';
-  document.getElementById('finH').value = '71';
+  document.getElementById('finW').value = '';
+  document.getElementById('finH').value = '';
+  document.getElementById('inputBleed').value = '';
+  document.getElementById('outputBleed').value = '';
   previewWrap.innerHTML = '<div class="placeholder-msg"><div class="big">🖼️</div>Drop PDF files and click <strong>Generate Preview</strong></div>';
 });
 </script>
