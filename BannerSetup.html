@@ -539,10 +539,10 @@ function updateModeBadge() {
   modeBadge.style.display = '';
   if (mode === 'printready') {
     modeBadge.className = 'mode-badge same';
-    modeBadge.textContent = '🖨️ Print-ready → mirror for back';
+    modeBadge.textContent = '🖨️ Print-ready → rotate 180° for back';
   } else if (mode === 'same') {
     modeBadge.className = 'mode-badge same';
-    modeBadge.textContent = '📄 Double-Side Same (mirrored back)';
+    modeBadge.textContent = '📄 Double-Side Same (back rotated 180°)';
   } else if (mode === 'diff-pages') {
     modeBadge.className = 'mode-badge diff';
     const nBanners = Math.ceil(facePdf.numPages / 2);
@@ -634,16 +634,16 @@ async function getAllBannerPairs(maxPx) {
 // DRAW IMAGE ALIGNED — positions image so its trim aligns with output trim
 // No stretching: image drawn at correct aspect with trim aligned
 // ════════════════════════════════════════════
-function drawImageAligned(ctx, img, ppi, trimX, trimY, finW, finH, inputBleed, mirrored) {
+function drawImageAligned(ctx, img, ppi, trimX, trimY, finW, finH, inputBleed, rotated) {
   const imgW = (finW + 2 * inputBleed) * ppi;
   const imgH = (finH + 2 * inputBleed) * ppi;
   const imgX = trimX - inputBleed * ppi;
   const imgY = trimY - inputBleed * ppi;
 
   ctx.save();
-  if (mirrored) {
-    ctx.translate(imgX + imgW, imgY);
-    ctx.scale(-1, 1);
+  if (rotated) {
+    ctx.translate(imgX + imgW, imgY + imgH);
+    ctx.rotate(Math.PI);
     ctx.drawImage(img, 0, 0, imgW, imgH);
   } else {
     ctx.drawImage(img, imgX, imgY, imgW, imgH);
@@ -654,7 +654,7 @@ function drawImageAligned(ctx, img, ppi, trimX, trimY, finW, finH, inputBleed, m
 // ════════════════════════════════════════════
 // DRAW FACE — preview canvas with all overlays
 // ════════════════════════════════════════════
-function drawFace(canvas, thisImg, otherImg, cfg, label, thisMirrored, otherMirrored) {
+function drawFace(canvas, thisImg, otherImg, cfg, label, thisRotated, otherRotated) {
   const { finW, finH, inputBleed, outputBleed, sides, eL, eR, eT, eB, totalW, totalH } = cfg;
 
   const s = Math.min(canvas.width / totalW, canvas.height / totalH);
@@ -687,7 +687,7 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisMirrored, otherMirr
   ctx.beginPath();
   ctx.rect(0, foldTop, totalW * s, foldBot - foldTop);
   ctx.clip();
-  drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+  drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisRotated);
   ctx.restore();
 
   // ── Pocket / hem zones: OTHER side's art, rotated 180° ──
@@ -697,7 +697,7 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisMirrored, otherMirr
     ctx.beginPath(); ctx.rect(0, 0, totalW * s, foldTop); ctx.clip();
     ctx.translate(totalW * s, 2 * foldTop);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, otherMirrored);
+    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, otherRotated);
     ctx.restore();
   }
   // Bottom — rotated 180° and placed foot-to-foot at foldBot
@@ -706,7 +706,7 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisMirrored, otherMirr
     ctx.beginPath(); ctx.rect(0, foldBot, totalW * s, (outputBleed + eB) * s); ctx.clip();
     ctx.translate(totalW * s, 2 * foldBot);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, otherMirrored);
+    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, otherRotated);
     ctx.restore();
   }
 
@@ -715,12 +715,12 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisMirrored, otherMirr
     // Left bleed
     ctx.save();
     ctx.beginPath(); ctx.rect(0, foldTop, foldLeft, foldBot - foldTop); ctx.clip();
-    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisRotated);
     ctx.restore();
     // Right bleed
     ctx.save();
     ctx.beginPath(); ctx.rect(foldRight, foldTop, (outputBleed + eR) * s, foldBot - foldTop); ctx.clip();
-    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisRotated);
     ctx.restore();
   }
 
@@ -842,7 +842,7 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisMirrored, otherMirr
 // ════════════════════════════════════════════
 // BUILD CLEAN ARTWORK — no overlays, for PDF download
 // ════════════════════════════════════════════
-function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisMirrored, otherMirrored) {
+function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisRotated, otherRotated) {
   const { finW, finH, inputBleed, outputBleed, eL, eR, eT, eB, totalW, totalH } = cfg;
 
   const c = document.createElement('canvas');
@@ -866,7 +866,7 @@ function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisMirrored, otherMirr
   // ── This face's art in center zone ONLY (clipped between fold lines) ──
   ctx.save();
   ctx.beginPath(); ctx.rect(0, foldTop, w, foldBot - foldTop); ctx.clip();
-  drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+  drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisRotated);
   ctx.restore();
 
   // ── Pocket zones with other side's art, rotated 180° ──
@@ -875,7 +875,7 @@ function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisMirrored, otherMirr
     ctx.beginPath(); ctx.rect(0, 0, w, foldTop); ctx.clip();
     ctx.translate(w, 2 * foldTop);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, otherMirrored);
+    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, otherRotated);
     ctx.restore();
   }
   if (eB > 0) {
@@ -883,7 +883,7 @@ function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisMirrored, otherMirr
     ctx.beginPath(); ctx.rect(0, foldBot, w, h - foldBot); ctx.clip();
     ctx.translate(w, 2 * foldBot);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, otherMirrored);
+    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, otherRotated);
     ctx.restore();
   }
 
@@ -891,11 +891,11 @@ function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisMirrored, otherMirr
   if (outputBleed > 0) {
     ctx.save();
     ctx.beginPath(); ctx.rect(0, foldTop, foldLeft, foldBot - foldTop); ctx.clip();
-    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisRotated);
     ctx.restore();
     ctx.save();
     ctx.beginPath(); ctx.rect(foldRight, foldTop, w - foldRight, foldBot - foldTop); ctx.clip();
-    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisMirrored);
+    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisRotated);
     ctx.restore();
   }
 
@@ -968,10 +968,8 @@ async function generateSetupPreview() {
     const pair = pairs[bi];
     const { faceImg, backImg, isSame, label } = pair;
 
-    const frontThisMirrored = false;
-    const frontOtherMirrored = isSame;
-    const backThisMirrored = isSame;
-    const backOtherMirrored = false;
+    const frontThisRotated = false;
+    const frontOtherRotated = isSame;
 
     const group = document.createElement('div');
     group.className = 'banner-group';
@@ -999,7 +997,7 @@ async function generateSetupPreview() {
     frontWrap.appendChild(frontCanvas);
     frontSection.appendChild(frontWrap);
 
-    drawFace(frontCanvas, faceImg, backImg, cfg, 'FRONT', frontThisMirrored, frontOtherMirrored);
+    drawFace(frontCanvas, faceImg, backImg, cfg, 'FRONT', frontThisRotated, frontOtherRotated);
 
     const frontInfo = document.createElement('div');
     frontInfo.className = 'info-bar';
@@ -1007,34 +1005,35 @@ async function generateSetupPreview() {
     frontSection.appendChild(frontInfo);
     group.appendChild(frontSection);
 
-    // BACK print sheet
-    const backSection = document.createElement('div');
-    backSection.className = 'face-section';
-    const backLbl = document.createElement('div');
-    backLbl.className = 'preview-label';
-    backLbl.innerHTML = isSame
-      ? `▼ <span>BACK</span> Print Sheet — Mirrored from Face`
-      : `▼ <span>BACK</span> Print Sheet — Side 2`;
-    backSection.appendChild(backLbl);
+    // BACK print sheet — only shown for different artwork
+    if (isSame) {
+      const backNote = document.createElement('div');
+      backNote.className = 'info-bar';
+      backNote.innerHTML = `<strong>Back (Side 2)</strong> — Double-sided same: back is front rotated 180° — no separate page needed`;
+      group.appendChild(backNote);
+    } else {
+      const backSection = document.createElement('div');
+      backSection.className = 'face-section';
+      const backLbl = document.createElement('div');
+      backLbl.className = 'preview-label';
+      backLbl.innerHTML = `▼ <span>BACK</span> Print Sheet — Side 2`;
+      backSection.appendChild(backLbl);
 
-    const backWrapEl = document.createElement('div');
-    backWrapEl.className = 'canvas-wrap';
-    const backCanvas = document.createElement('canvas');
-    backCanvas.width = canvW; backCanvas.height = canvH;
-    backWrapEl.appendChild(backCanvas);
-    backSection.appendChild(backWrapEl);
+      const backWrapEl = document.createElement('div');
+      backWrapEl.className = 'canvas-wrap';
+      const backCanvas = document.createElement('canvas');
+      backCanvas.width = canvW; backCanvas.height = canvH;
+      backWrapEl.appendChild(backCanvas);
+      backSection.appendChild(backWrapEl);
 
-    drawFace(backCanvas, backImg, faceImg, cfg,
-      isSame ? 'BACK (mirrored)' : 'BACK',
-      backThisMirrored, backOtherMirrored);
+      drawFace(backCanvas, backImg, faceImg, cfg, 'BACK', false, false);
 
-    const backInfo = document.createElement('div');
-    backInfo.className = 'info-bar';
-    backInfo.innerHTML = isSame
-      ? `<strong>Back (Side 2)</strong> — Double-sided same, mirrored horizontally`
-      : `<strong>Back (Side 2)</strong> — Separate artwork`;
-    backSection.appendChild(backInfo);
-    group.appendChild(backSection);
+      const backInfo = document.createElement('div');
+      backInfo.className = 'info-bar';
+      backInfo.innerHTML = `<strong>Back (Side 2)</strong> — Separate artwork`;
+      backSection.appendChild(backInfo);
+      group.appendChild(backSection);
+    }
 
     previewWrap.appendChild(group);
   }
@@ -1064,20 +1063,20 @@ async function generatePrintReadyPreview() {
   frontSection.innerHTML += `<div class="info-bar"><strong>Page: ${facePdf.mediaW}″ × ${facePdf.mediaH}″</strong></div>`;
   group.appendChild(frontSection);
 
-  // Back (mirrored)
+  // Back (rotated 180°)
   const backSection = document.createElement('div');
   backSection.className = 'face-section';
-  backSection.innerHTML = `<div class="preview-label">▼ <span>BACK</span> — Mirrored</div>`;
+  backSection.innerHTML = `<div class="preview-label">▼ <span>BACK</span> — Rotated 180°</div>`;
   const bc = document.createElement('canvas');
   bc.width = dispW; bc.height = dispH;
   const bctx = bc.getContext('2d');
-  bctx.translate(dispW, 0);
-  bctx.scale(-1, 1);
+  bctx.translate(dispW, dispH);
+  bctx.rotate(Math.PI);
   bctx.drawImage(faceImg, 0, 0, dispW, dispH);
   const bw = document.createElement('div'); bw.className = 'canvas-wrap'; bw.appendChild(bc);
   backSection.appendChild(bw);
   const bi = document.createElement('div'); bi.className = 'info-bar';
-  bi.innerHTML = '<strong>Horizontally mirrored for double-side same</strong>';
+  bi.innerHTML = '<strong>Rotated 180° for double-side same</strong>';
   backSection.appendChild(bi);
   group.appendChild(backSection);
 
@@ -1125,7 +1124,7 @@ async function downloadPrintReady(jsPDF) {
   const maxPx = Math.min(8000, Math.round(Math.sqrt(16_000_000 * (Math.max(w,h) / Math.min(w,h)))));
   const faceImg = await renderPage(facePdf.doc, 1, maxPx);
 
-  // Single page — printer mirrors for the back
+  // Single page — printer rotates 180° for the back
   downloadBtn.textContent = 'Building…';
   const frontData = canvasToDataURL(faceImg);
   pdf.addImage(frontData, 'JPEG', 0, 0, w, h, undefined, 'FAST');
@@ -1140,19 +1139,17 @@ async function downloadSetup(jsPDF) {
   const orient = totalW >= totalH ? 'landscape' : 'portrait';
   const pdf = new jsPDF({ orientation: orient, unit: 'in', format: [totalW, totalH] });
 
-  // Calculate max feasible canvas size
+  // Maximize output resolution within browser canvas limits
   const MAX_PX = 16_000_000;
   const MAX_SIDE = 8000;
-  let targetDPI = 150;
+  let targetDPI = Math.floor(Math.min(
+    MAX_SIDE / totalW,
+    MAX_SIDE / totalH,
+    Math.sqrt(MAX_PX / (totalW * totalH))
+  ));
+  targetDPI = Math.max(targetDPI, 36); // absolute floor
   let imgW = Math.round(totalW * targetDPI);
   let imgH = Math.round(totalH * targetDPI);
-  if (imgW > MAX_SIDE) { targetDPI = MAX_SIDE / totalW; imgW = Math.round(totalW * targetDPI); imgH = Math.round(totalH * targetDPI); }
-  if (imgH > MAX_SIDE) { targetDPI = MAX_SIDE / totalH; imgW = Math.round(totalW * targetDPI); imgH = Math.round(totalH * targetDPI); }
-  if (imgW * imgH > MAX_PX) {
-    const sc = Math.sqrt(MAX_PX / (imgW * imgH));
-    imgW = Math.round(imgW * sc);
-    imgH = Math.round(imgH * sc);
-  }
 
   const maxRenderPx = Math.min(Math.max(imgW, imgH), MAX_SIDE);
   const pairs = await getAllBannerPairs(maxRenderPx);
@@ -1160,21 +1157,20 @@ async function downloadSetup(jsPDF) {
   let firstPage = true;
   for (let bi = 0; bi < pairs.length; bi++) {
     const { faceImg, backImg, isSame } = pairs[bi];
-    const frontMirrored = false;
-    const backMirrored = isSame;
+    const frontRotated = false;
 
     // ── Front print sheet ──
     if (!firstPage) pdf.addPage([totalW, totalH], orient);
     firstPage = false;
     downloadBtn.textContent = `Building… Banner ${bi+1} Front`;
-    const frontCanvas = buildCleanArtwork(imgW, imgH, faceImg, backImg, cfg, frontMirrored, isSame);
+    const frontCanvas = buildCleanArtwork(imgW, imgH, faceImg, backImg, cfg, frontRotated, isSame);
     pdf.addImage(canvasToDataURL(frontCanvas), 'JPEG', 0, 0, totalW, totalH, undefined, 'FAST');
 
     // ── Back print sheet ──
     if (!isSame) {
       pdf.addPage([totalW, totalH], orient);
       downloadBtn.textContent = `Building… Banner ${bi+1} Back`;
-      const backCanvas = buildCleanArtwork(imgW, imgH, backImg, faceImg, cfg, backMirrored, false);
+      const backCanvas = buildCleanArtwork(imgW, imgH, backImg, faceImg, cfg, false, false);
       pdf.addImage(canvasToDataURL(backCanvas), 'JPEG', 0, 0, totalW, totalH, undefined, 'FAST');
     }
   }
