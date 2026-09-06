@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Banner Setup Tool</title>
 <script src="jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.js"></script>
 <style>
   :root {
     --bg: #f5f5f7; --surface: #fff; --surface2: #f0f0f5;
@@ -163,17 +164,17 @@
         <div class="drop-pair" id="dropPair">
           <div class="drop-zone" id="dropFace">
             <div class="dz-icon">📎</div>
-            <div class="dz-label">Drop PDF here<br><small>1 pg = same both sides<br>Multi-page = face/back pairs</small></div>
+            <div class="dz-label">Drop PDF or Image<br><small>PDF: 1 pg = same both sides<br>Multi-page = face/back pairs<br>JPG/TIFF/PNG also accepted</small></div>
             <div class="dz-file" id="faceFileName"></div>
           </div>
           <div class="drop-zone" id="dropBack">
             <div class="dz-icon">📎</div>
-            <div class="dz-label">Back (Side 2)<br><small>Separate file — optional</small></div>
+            <div class="dz-label">Back (Side 2)<br><small>Separate file — optional<br>PDF or image</small></div>
             <div class="dz-file" id="backFileName"></div>
           </div>
         </div>
-        <input type="file" id="faceFileInput" accept=".pdf">
-        <input type="file" id="backFileInput" accept=".pdf">
+        <input type="file" id="faceFileInput" accept=".pdf,.jpg,.jpeg,.tif,.tiff,.png,.bmp,.webp">
+        <input type="file" id="backFileInput" accept=".pdf,.jpg,.jpeg,.tif,.tiff,.png,.bmp,.webp">
         <div class="mode-badge" id="modeBadge" style="display:none"></div>
         <div class="hint" id="pdfInfo"></div>
       </div>
@@ -193,6 +194,11 @@
           <input type="number" id="finH" value="" step="0.125" min="1" placeholder="—">
           <span class="unit">in</span>
         </div>
+        <div class="field-row raster-only" id="dpiRow" style="display:none">
+          <label>DPI</label>
+          <input type="number" id="rasterDpi" value="150" step="1" min="1">
+          <span class="unit" id="rasterPixInfo"></span>
+        </div>
         <div class="hint" id="sizeHint"></div>
       </div>
     </div>
@@ -211,7 +217,7 @@
           <input type="number" id="outputBleed" value="" step="0.125" min="0" placeholder="0">
           <span class="unit">in</span>
         </div>
-        <div class="hint">Input = bleed on source PDFs. Output = bleed on final print file.</div>
+        <div class="hint">Input = bleed on source files. For raster images, bleed = trim inset from image edge. Output = bleed on final print file.</div>
       </div>
     </div>
 
@@ -240,7 +246,7 @@
       <div class="legend-item"><div class="legend-swatch hem"></div> Hem</div>
     </div>
     <div class="preview-wrap" id="previewWrap">
-      <div class="placeholder-msg"><div class="big">🖼️</div>Drop PDF files and click <strong>Generate Preview</strong></div>
+      <div class="placeholder-msg"><div class="big">🖼️</div>Drop PDF or image files and click <strong>Generate Preview</strong></div>
     </div>
   </div>
 </div>
@@ -255,7 +261,16 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 const SIDES = ['top','bottom','left','right'];
 let facePdf = null;  // { doc, numPages, mediaW, mediaH, fileName }
 let backPdf = null;
+let faceRaster = null; // { img, pxW, pxH, fileName }
+let backRaster = null;
 let inputMode = 'setup';
+
+const RASTER_EXTS = /\.(jpe?g|tiff?|png|bmp|webp)$/i;
+const RASTER_MIMES = ['image/jpeg','image/png','image/tiff','image/bmp','image/webp'];
+
+function isRasterFile(file) {
+  return RASTER_MIMES.includes(file.type) || RASTER_EXTS.test(file.name);
+}
 
 // ════════════════════════════════════════════
 // BUILD SIDE CONFIG UI
@@ -338,7 +353,7 @@ function setupDrop(zone, fileInput, onLoad) {
   zone.addEventListener('drop', e => {
     e.preventDefault(); zone.classList.remove('drag-over');
     const f = e.dataTransfer.files[0];
-    if (f && f.type === 'application/pdf') onLoad(f);
+    if (f && (f.type === 'application/pdf' || isRasterFile(f))) onLoad(f);
   });
   fileInput.addEventListener('change', () => { if (fileInput.files[0]) onLoad(fileInput.files[0]); });
 }
@@ -437,9 +452,54 @@ function matchTrimBox(trimBoxes, pageW, pageH) {
   return best;
 }
 
+// ════════════════════════════════════════════
+// RASTER IMAGE LOADING (JPG, TIFF, PNG, etc.)
+// ════════════════════════════════════════════
+async function loadRasterFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  const isJpeg = (ext === 'jpg' || ext === 'jpeg');
+  const rawBytes = new Uint8Array(await file.arrayBuffer());
+  let img;
+
+  if (ext === 'tif' || ext === 'tiff') {
+    // Decode TIFF via UTIF.js
+    const ifds = UTIF.decode(rawBytes.buffer);
+    UTIF.decodeImage(rawBytes.buffer, ifds[0]);
+    const rgba = UTIF.toRGBA8(ifds[0]);
+    const w = ifds[0].width, h = ifds[0].height;
+    const c = new OffscreenCanvas(w, h);
+    const ctx = c.getContext('2d');
+    const imgData = ctx.createImageData(w, h);
+    imgData.data.set(new Uint8Array(rgba));
+    ctx.putImageData(imgData, 0, 0);
+    img = c;
+  } else {
+    // Standard browser-decodable image (JPG, PNG, BMP, WebP)
+    const blob = new Blob([rawBytes], { type: file.type });
+    const blobUrl = URL.createObjectURL(blob);
+    img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => { URL.revokeObjectURL(blobUrl); resolve(el); };
+      el.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('Failed to decode image')); };
+      el.src = blobUrl;
+    });
+  }
+
+  const pxW = img.width;
+  const pxH = img.height;
+
+  return { img, pxW, pxH, fileName: file.name, rawBytes, isJpeg };
+}
+
 setupDrop(dropFace, faceFileInput, async (file) => {
   try {
-    facePdf = await loadPdfFile(file);
+    if (isRasterFile(file)) {
+      facePdf = null;
+      faceRaster = await loadRasterFile(file);
+    } else {
+      faceRaster = null;
+      facePdf = await loadPdfFile(file);
+    }
     faceFileNameEl.textContent = file.name;
     dropFace.classList.add('has-file');
     // Add clear button
@@ -449,19 +509,26 @@ setupDrop(dropFace, faceFileInput, async (file) => {
       cb.onclick = (e) => { e.stopPropagation(); clearFace(); };
       dropFace.appendChild(cb);
     }
+    updateRasterUI();
     autoFillDimensions();
     updateModeBadge();
     generateBtn.disabled = false;
   } catch (err) {
-    console.error('Error loading face PDF:', err);
-    pdfInfo.textContent = 'Error loading PDF: ' + err.message;
+    console.error('Error loading face file:', err);
+    pdfInfo.textContent = 'Error loading file: ' + err.message;
     pdfInfo.style.color = 'var(--red)';
   }
 });
 
 setupDrop(dropBack, backFileInput, async (file) => {
   try {
-    backPdf = await loadPdfFile(file);
+    if (isRasterFile(file)) {
+      backPdf = null;
+      backRaster = await loadRasterFile(file);
+    } else {
+      backRaster = null;
+      backPdf = await loadPdfFile(file);
+    }
     backFileNameEl.textContent = file.name;
     dropBack.classList.add('has-file');
     if (!dropBack.querySelector('.dz-clear')) {
@@ -472,17 +539,19 @@ setupDrop(dropBack, backFileInput, async (file) => {
     }
     updateModeBadge();
   } catch (err) {
-    console.error('Error loading back PDF:', err);
-    pdfInfo.textContent = 'Error loading back PDF: ' + err.message;
+    console.error('Error loading back file:', err);
+    pdfInfo.textContent = 'Error loading back file: ' + err.message;
     pdfInfo.style.color = 'var(--red)';
   }
 });
 
 function clearFace() {
   facePdf = null;
+  faceRaster = null;
   faceFileNameEl.textContent = '';
   dropFace.classList.remove('has-file');
   const cb = dropFace.querySelector('.dz-clear'); if (cb) cb.remove();
+  updateRasterUI();
   updateModeBadge();
   generateBtn.disabled = true;
   downloadBtn.style.display = 'none';
@@ -490,13 +559,48 @@ function clearFace() {
 
 function clearBack() {
   backPdf = null;
+  backRaster = null;
   backFileNameEl.textContent = '';
   dropBack.classList.remove('has-file');
   const cb = dropBack.querySelector('.dz-clear'); if (cb) cb.remove();
   updateModeBadge();
 }
 
+function updateRasterUI() {
+  const dpiRow = document.getElementById('dpiRow');
+  const rasterPixInfo = document.getElementById('rasterPixInfo');
+  if (faceRaster) {
+    dpiRow.style.display = '';
+    rasterPixInfo.textContent = `(${faceRaster.pxW} × ${faceRaster.pxH} px)`;
+  } else {
+    dpiRow.style.display = 'none';
+    rasterPixInfo.textContent = '';
+  }
+}
+
 function autoFillDimensions() {
+  if (!facePdf && !faceRaster) return;
+
+  if (faceRaster) {
+    // Raster image: compute size from pixels / DPI
+    const dpi = parseFloat(document.getElementById('rasterDpi').value) || 150;
+    const imgW = +(faceRaster.pxW / dpi).toFixed(2);
+    const imgH = +(faceRaster.pxH / dpi).toFixed(2);
+    // For rasters, image size IS the full file size (including any bleed in the artwork)
+    // User enters input bleed → finished size = image size minus bleed on each side
+    const ib = parseFloat(document.getElementById('inputBleed').value) || 0;
+    const fw = +(imgW - 2 * ib).toFixed(2);
+    const fh = +(imgH - 2 * ib).toFixed(2);
+    document.getElementById('finW').value = fw;
+    document.getElementById('finH').value = fh;
+    if (ib > 0) {
+      sizeHint.textContent = `Image: ${imgW}″ × ${imgH}″ @ ${dpi} DPI — ${ib}″ bleed → Trim: ${fw}″ × ${fh}″`;
+    } else {
+      sizeHint.textContent = `Image: ${imgW}″ × ${imgH}″ @ ${dpi} DPI — enter bleed if artwork extends past trim.`;
+    }
+    return;
+  }
+
   if (!facePdf) return;
   let fw, fh;
   if (facePdf.trimW !== null && facePdf.trimH !== null) {
@@ -522,13 +626,21 @@ function autoFillDimensions() {
   document.getElementById('finH').value = fh;
 }
 
-// Re-calc when input bleed changes
+// Re-calc when input bleed or DPI changes (input = live as you type, change = on blur)
+document.getElementById('inputBleed').addEventListener('input', autoFillDimensions);
 document.getElementById('inputBleed').addEventListener('change', autoFillDimensions);
+document.getElementById('rasterDpi').addEventListener('input', autoFillDimensions);
+document.getElementById('rasterDpi').addEventListener('change', autoFillDimensions);
 
 function getDetectedMode() {
-  if (!facePdf) return 'none';
+  if (!facePdf && !faceRaster) return 'none';
   if (inputMode === 'printready') return 'printready';
-  if (backPdf) return 'diff-files';
+  if (faceRaster) {
+    // Raster: check for separate back file
+    if (backRaster || backPdf) return 'diff-files';
+    return 'same';
+  }
+  if (backPdf || backRaster) return 'diff-files';
   if (facePdf.numPages >= 2) return 'diff-pages';
   return 'same';
 }
@@ -588,12 +700,32 @@ async function renderPage(doc, pageNum, maxPx) {
   let scale = Math.min(maxPx / Math.max(vp0.width, vp0.height), 6);
   let w = Math.round(vp0.width * scale);
   let h = Math.round(vp0.height * scale);
-  if (w > 8000 || h > 8000) { scale = 8000 / Math.max(vp0.width, vp0.height); w = Math.round(vp0.width * scale); h = Math.round(vp0.height * scale); }
-  if (w * h > 16_000_000) { const s2 = Math.sqrt(16_000_000 / (w * h)); scale *= s2; w = Math.round(vp0.width * scale); h = Math.round(vp0.height * scale); }
+  if (w > 16384 || h > 16384) { scale = 16384 / Math.max(vp0.width, vp0.height); w = Math.round(vp0.width * scale); h = Math.round(vp0.height * scale); }
+  if (w * h > 100_000_000) { const s2 = Math.sqrt(100_000_000 / (w * h)); scale *= s2; w = Math.round(vp0.width * scale); h = Math.round(vp0.height * scale); }
   const vp = page.getViewport({ scale });
   const c = new OffscreenCanvas(Math.round(vp.width), Math.round(vp.height));
   await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
   return c;
+}
+
+// ════════════════════════════════════════════
+// RENDER RASTER IMAGE TO OFFSCREEN CANVAS (matching PDF renderPage output)
+// ════════════════════════════════════════════
+function rasterToCanvas(rasterObj, maxPx) {
+  const { img, pxW, pxH } = rasterObj;
+  const scale = Math.min(maxPx / Math.max(pxW, pxH), 1);
+  const w = Math.round(pxW * scale);
+  const h = Math.round(pxH * scale);
+  const c = new OffscreenCanvas(w, h);
+  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  return c;
+}
+
+// Helper: render any back source (raster or PDF) to canvas
+async function renderBackSource(maxPx) {
+  if (backRaster) return rasterToCanvas(backRaster, maxPx);
+  if (backPdf) return renderPage(backPdf.doc, 1, maxPx);
+  return null;
 }
 
 // ════════════════════════════════════════════
@@ -602,6 +734,19 @@ async function renderPage(doc, pageNum, maxPx) {
 async function getAllBannerPairs(maxPx) {
   const mode = getDetectedMode();
   const pairs = [];
+
+  if (faceRaster) {
+    // Raster face
+    const faceImg = rasterToCanvas(faceRaster, maxPx);
+    if (mode === 'diff-files') {
+      const backImg = await renderBackSource(maxPx);
+      pairs.push({ faceImg, backImg, isSame: false, label: 'Banner 1', facePage: 1, backPage: 1 });
+    } else {
+      // Same both sides
+      pairs.push({ faceImg, backImg: faceImg, isSame: true, label: 'Banner 1', facePage: 1, backPage: 1 });
+    }
+    return pairs;
+  }
 
   if (mode === 'diff-pages') {
     // Multipage PDF: pages 1/2 = banner 1 face/back, pages 3/4 = banner 2, etc.
@@ -620,7 +765,7 @@ async function getAllBannerPairs(maxPx) {
     }
   } else if (mode === 'diff-files') {
     const faceImg = await renderPage(facePdf.doc, 1, maxPx);
-    const backImg = await renderPage(backPdf.doc, 1, maxPx);
+    const backImg = await renderBackSource(maxPx);
     pairs.push({ faceImg, backImg, isSame: false, label: 'Banner 1', facePage: 1, backPage: 1 });
   } else {
     // Same both sides (single page)
@@ -690,23 +835,24 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisRotated, otherRotat
   drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisRotated);
   ctx.restore();
 
-  // ── Pocket / hem zones: OTHER side's art, rotated 180° ──
-  // Top — rotated 180° and placed head-to-head at foldTop
+  // ── Pocket / hem zones: OTHER side's art, rotated 180° about trim center at fold ──
+  // NOTE: always pass false for rotation — the fold rotation handles orientation.
+  // Top — rotated 180° about (trim center X, foldTop) → head-to-head
   if (eT > 0) {
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, totalW * s, foldTop); ctx.clip();
-    ctx.translate(totalW * s, 2 * foldTop);
+    ctx.translate(2 * trimX + trimW, 2 * foldTop);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, otherRotated);
+    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, false);
     ctx.restore();
   }
-  // Bottom — rotated 180° and placed foot-to-foot at foldBot
+  // Bottom — rotated 180° about (trim center X, foldBot) → foot-to-foot
   if (eB > 0) {
     ctx.save();
     ctx.beginPath(); ctx.rect(0, foldBot, totalW * s, (outputBleed + eB) * s); ctx.clip();
-    ctx.translate(totalW * s, 2 * foldBot);
+    ctx.translate(2 * trimX + trimW, 2 * foldBot);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, otherRotated);
+    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, false);
     ctx.restore();
   }
 
@@ -869,21 +1015,22 @@ function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisRotated, otherRotat
   drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisRotated);
   ctx.restore();
 
-  // ── Pocket zones with other side's art, rotated 180° ──
+  // ── Pocket zones with other side's art, rotated 180° about trim center at fold ──
+  // NOTE: always pass false for rotation — the fold rotation handles orientation.
   if (eT > 0) {
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, w, foldTop); ctx.clip();
-    ctx.translate(w, 2 * foldTop);
+    ctx.translate(2 * trimX + trimW, 2 * foldTop);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, otherRotated);
+    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, false);
     ctx.restore();
   }
   if (eB > 0) {
     ctx.save();
     ctx.beginPath(); ctx.rect(0, foldBot, w, h - foldBot); ctx.clip();
-    ctx.translate(w, 2 * foldBot);
+    ctx.translate(2 * trimX + trimW, 2 * foldBot);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, otherRotated);
+    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, false);
     ctx.restore();
   }
 
@@ -916,7 +1063,7 @@ function canvasToDataURL(canvas) {
 // GENERATE PREVIEW
 // ════════════════════════════════════════════
 generateBtn.addEventListener('click', async () => {
-  if (!facePdf) return;
+  if (!facePdf && !faceRaster) return;
   generateBtn.disabled = true;
   generateBtn.textContent = 'Rendering…';
 
@@ -1040,8 +1187,17 @@ async function generateSetupPreview() {
 }
 
 async function generatePrintReadyPreview() {
-  const faceImg = await renderPage(facePdf.doc, 1, 2000);
-  const w = faceImg.width, h = faceImg.height;
+  let faceImg, w, h, sizeLabel;
+  if (faceRaster) {
+    faceImg = rasterToCanvas(faceRaster, 2000);
+    const dpi = parseFloat(document.getElementById('rasterDpi').value) || 150;
+    w = faceImg.width; h = faceImg.height;
+    sizeLabel = `${(faceRaster.pxW/dpi).toFixed(1)}″ × ${(faceRaster.pxH/dpi).toFixed(1)}″ @ ${dpi} DPI`;
+  } else {
+    faceImg = await renderPage(facePdf.doc, 1, 2000);
+    w = faceImg.width; h = faceImg.height;
+    sizeLabel = `${facePdf.mediaW}″ × ${facePdf.mediaH}″`;
+  }
 
   previewWrap.innerHTML = '';
   const group = document.createElement('div');
@@ -1060,7 +1216,7 @@ async function generatePrintReadyPreview() {
   fc.getContext('2d').drawImage(faceImg, 0, 0, dispW, dispH);
   const fw = document.createElement('div'); fw.className = 'canvas-wrap'; fw.appendChild(fc);
   frontSection.appendChild(fw);
-  frontSection.innerHTML += `<div class="info-bar"><strong>Page: ${facePdf.mediaW}″ × ${facePdf.mediaH}″</strong></div>`;
+  frontSection.innerHTML += `<div class="info-bar"><strong>Page: ${sizeLabel}</strong></div>`;
   group.appendChild(frontSection);
 
   // Back (rotated 180°)
@@ -1087,7 +1243,7 @@ async function generatePrintReadyPreview() {
 // DOWNLOAD PRINT PDF
 // ════════════════════════════════════════════
 downloadBtn.addEventListener('click', async () => {
-  if (!facePdf) return;
+  if (!facePdf && !faceRaster) return;
   downloadBtn.disabled = true;
   downloadBtn.textContent = 'Building PDF…';
 
@@ -1116,69 +1272,377 @@ downloadBtn.addEventListener('click', async () => {
 });
 
 async function downloadPrintReady(jsPDF) {
-  const w = facePdf.mediaW, h = facePdf.mediaH;
-  const orient = w >= h ? 'landscape' : 'portrait';
-  const pdf = new jsPDF({ orientation: orient, unit: 'in', format: [w, h] });
+  let w, h, jpegData, pxW, pxH;
+  if (faceRaster) {
+    const dpi = parseFloat(document.getElementById('rasterDpi').value) || 150;
+    w = +(faceRaster.pxW / dpi).toFixed(4);
+    h = +(faceRaster.pxH / dpi).toFixed(4);
+    jpegData = rasterToFullResJpeg(faceRaster);
+    pxW = faceRaster.pxW; pxH = faceRaster.pxH;
+  } else {
+    w = facePdf.mediaW; h = facePdf.mediaH;
+    const maxPx = Math.min(16384, Math.round(Math.sqrt(100_000_000 * (Math.max(w,h) / Math.min(w,h)))));
+    const faceImg = await renderPage(facePdf.doc, 1, maxPx);
+    jpegData = canvasToJpegBytes(faceImg);
+    pxW = faceImg.width; pxH = faceImg.height;
+  }
 
-  // Render at max feasible resolution
-  const maxPx = Math.min(8000, Math.round(Math.sqrt(16_000_000 * (Math.max(w,h) / Math.min(w,h)))));
-  const faceImg = await renderPage(facePdf.doc, 1, maxPx);
-
-  // Single page — printer rotates 180° for the back
   downloadBtn.textContent = 'Building…';
-  const frontData = canvasToDataURL(faceImg);
-  pdf.addImage(frontData, 'JPEG', 0, 0, w, h, undefined, 'FAST');
-
-  const baseName = facePdf.fileName.replace(/\.pdf$/i, '');
-  pdf.save(`${baseName} - double side same.pdf`);
+  const pdfBytes = buildRawPdfSimple(w, h, [{ jpeg: jpegData, w: pxW, h: pxH }]);
+  const baseName = (facePdf ? facePdf.fileName : faceRaster.fileName).replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
+  savePdfBlob(pdfBytes, `${baseName} - double side same.pdf`);
 }
 
 async function downloadSetup(jsPDF) {
   const cfg = getConfig();
   const { totalW, totalH } = cfg;
-  const orient = totalW >= totalH ? 'landscape' : 'portrait';
-  const pdf = new jsPDF({ orientation: orient, unit: 'in', format: [totalW, totalH] });
 
-  // Maximize output resolution within browser canvas limits
-  const MAX_PX = 16_000_000;
-  const MAX_SIDE = 8000;
+  // ── RASTER SOURCE: embed original-resolution images, composite via PDF operators ──
+  if (faceRaster) {
+    downloadBtn.textContent = 'Preparing images…';
+    const faceJpeg = rasterToFullResJpeg(faceRaster);
+    const facePxW = faceRaster.pxW, facePxH = faceRaster.pxH;
+
+    let backJpeg, backPxW, backPxH, isSame;
+    if (backRaster) {
+      backJpeg = rasterToFullResJpeg(backRaster);
+      backPxW = backRaster.pxW; backPxH = backRaster.pxH;
+      isSame = false;
+    } else if (backPdf) {
+      const backImg = await renderPage(backPdf.doc, 1, 16384);
+      backJpeg = canvasToJpegBytes(backImg);
+      backPxW = backImg.width; backPxH = backImg.height;
+      isSame = false;
+    } else {
+      backJpeg = faceJpeg; backPxW = facePxW; backPxH = facePxH;
+      isSame = true;
+    }
+
+    downloadBtn.textContent = 'Assembling PDF…';
+    const pdfBytes = buildRawPdfComposite(totalW, totalH, cfg, [{
+      faceJpeg, facePxW, facePxH,
+      backJpeg, backPxW, backPxH,
+      isSame
+    }]);
+
+    const baseName = faceRaster.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
+    savePdfBlob(pdfBytes, `${baseName} - banner print.pdf`);
+    return;
+  }
+
+  // ── PDF SOURCE: canvas compositing (source is vector, must rasterize) ──
+  const MAX_PX = 100_000_000;
+  const MAX_SIDE = 16384;
   let targetDPI = Math.floor(Math.min(
     MAX_SIDE / totalW,
     MAX_SIDE / totalH,
     Math.sqrt(MAX_PX / (totalW * totalH))
   ));
-  targetDPI = Math.max(targetDPI, 36); // absolute floor
+  targetDPI = Math.max(targetDPI, 36);
   let imgW = Math.round(totalW * targetDPI);
   let imgH = Math.round(totalH * targetDPI);
 
   const maxRenderPx = Math.min(Math.max(imgW, imgH), MAX_SIDE);
   const pairs = await getAllBannerPairs(maxRenderPx);
 
-  let firstPage = true;
+  const pageImages = [];
   for (let bi = 0; bi < pairs.length; bi++) {
     const { faceImg, backImg, isSame } = pairs[bi];
-    const frontRotated = false;
 
-    // ── Front print sheet ──
-    if (!firstPage) pdf.addPage([totalW, totalH], orient);
-    firstPage = false;
     downloadBtn.textContent = `Building… Banner ${bi+1} Front`;
-    const frontCanvas = buildCleanArtwork(imgW, imgH, faceImg, backImg, cfg, frontRotated, isSame);
-    pdf.addImage(canvasToDataURL(frontCanvas), 'JPEG', 0, 0, totalW, totalH, undefined, 'FAST');
+    const frontCanvas = buildCleanArtwork(imgW, imgH, faceImg, backImg, cfg, false, isSame);
+    pageImages.push({ jpeg: canvasToJpegBytes(frontCanvas), w: imgW, h: imgH });
 
-    // ── Back print sheet ──
     if (!isSame) {
-      pdf.addPage([totalW, totalH], orient);
       downloadBtn.textContent = `Building… Banner ${bi+1} Back`;
       const backCanvas = buildCleanArtwork(imgW, imgH, backImg, faceImg, cfg, false, false);
-      pdf.addImage(canvasToDataURL(backCanvas), 'JPEG', 0, 0, totalW, totalH, undefined, 'FAST');
+      pageImages.push({ jpeg: canvasToJpegBytes(backCanvas), w: imgW, h: imgH });
     }
   }
 
   await new Promise(r => setTimeout(r, 50));
+  downloadBtn.textContent = 'Assembling PDF…';
 
-  const baseName = facePdf.fileName.replace(/\.pdf$/i, '');
-  pdf.save(`${baseName} - banner print.pdf`);
+  const pdfBytes = buildRawPdfSimple(totalW, totalH, pageImages);
+  const baseName = facePdf.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
+  savePdfBlob(pdfBytes, `${baseName} - banner print.pdf`);
+}
+
+// ════════════════════════════════════════════
+// RAW PDF BUILDER — bypasses jsPDF's 200″ (14400pt) limit
+// Uses UserUnit (PDF 1.6) for pages wider/taller than 200″.
+// Every production RIP (Caldera, Onyx, Wasatch) handles UserUnit.
+// ════════════════════════════════════════════
+
+function rasterToFullResJpeg(raster) {
+  if (raster.isJpeg) return raster.rawBytes;
+  // Non-JPEG: full-res canvas → JPEG (format conversion, no resampling)
+  const c = document.createElement('canvas');
+  c.width = raster.pxW; c.height = raster.pxH;
+  c.getContext('2d').drawImage(raster.img, 0, 0);
+  return canvasToJpegBytes(c);
+}
+
+function canvasToJpegBytes(canvas) {
+  let c = canvas;
+  if (canvas instanceof OffscreenCanvas) {
+    c = document.createElement('canvas');
+    c.width = canvas.width; c.height = canvas.height;
+    c.getContext('2d').drawImage(canvas, 0, 0);
+  }
+  const dataUrl = c.toDataURL('image/jpeg', 0.92);
+  const bin = atob(dataUrl.split(',')[1]);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+function savePdfBlob(uint8Array, filename) {
+  const blob = new Blob([uint8Array], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── PDF byte-stream helpers ──
+function makePdfWriter() {
+  const enc = new TextEncoder();
+  const chunks = [];
+  const offsets = [];
+  let pos = 0;
+  let nextObj = 1;
+  function emit(str) { const b = enc.encode(str); chunks.push(b); pos += b.length; }
+  function emitRaw(arr) { chunks.push(arr); pos += arr.length; }
+  function startObj(id) { offsets[id] = pos; emit(`${id} 0 obj\n`); }
+  function allocId() { return nextObj++; }
+  function getPos() { return pos; }
+  function getNextObj() { return nextObj; }
+  function finalize(catalogId) {
+    const xrefPos = pos;
+    const totalObjs = nextObj;
+    emit('xref\n');
+    emit(`0 ${totalObjs}\n`);
+    emit('0000000000 65535 f \n');
+    for (let i = 1; i < totalObjs; i++) {
+      const off = offsets[i] !== undefined ? offsets[i] : 0;
+      emit(String(off).padStart(10, '0') + ' 00000 n \n');
+    }
+    emit('trailer\n');
+    emit(`<< /Size ${totalObjs} /Root ${catalogId} 0 R >>\n`);
+    emit('startxref\n');
+    emit(`${xrefPos}\n`);
+    emit('%%EOF\n');
+    const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+    const out = new Uint8Array(totalLen);
+    let p = 0;
+    for (const c of chunks) { out.set(c, p); p += c.length; }
+    return out;
+  }
+  return { emit, emitRaw, startObj, allocId, getPos, getNextObj, finalize, enc };
+}
+
+function computeUserUnit(pageWIn, pageHIn) {
+  const MAX_BOX = 14400;
+  const ptW = pageWIn * 72, ptH = pageHIn * 72;
+  if (ptW <= MAX_BOX && ptH <= MAX_BOX) return { userUnit: 1, boxW: ptW, boxH: ptH, s: 72 };
+  const userUnit = Math.ceil(Math.max(ptW, ptH) / MAX_BOX * 100) / 100;
+  return { userUnit, boxW: ptW / userUnit, boxH: ptH / userUnit, s: 72 / userUnit };
+}
+
+// ── Simple PDF: pre-composited raster pages (for PDF sources / print-ready) ──
+function buildRawPdfSimple(pageWIn, pageHIn, pages) {
+  const { userUnit, boxW, boxH } = computeUserUnit(pageWIn, pageHIn);
+  const w = makePdfWriter();
+  w.emit('%PDF-1.6\n%\xE2\xE3\xCF\xD3\n');
+
+  const catalogId = w.allocId(); w.startObj(catalogId);
+  const pagesId = w.allocId();
+  w.emit(`<< /Type /Catalog /Pages ${pagesId} 0 R >>\nendobj\n`);
+
+  // Pre-assign IDs: per page = imgObj, pageObj, contentObj
+  const pageData = [];
+  for (let i = 0; i < pages.length; i++) {
+    pageData.push({ imgId: w.allocId(), pageId: w.allocId(), csId: w.allocId() });
+  }
+
+  w.startObj(pagesId);
+  w.emit(`<< /Type /Pages /Kids [${pageData.map(p => `${p.pageId} 0 R`).join(' ')}] /Count ${pages.length} >>\nendobj\n`);
+
+  const uu = userUnit !== 1 ? ` /UserUnit ${userUnit}` : '';
+  for (let i = 0; i < pages.length; i++) {
+    const pg = pages[i], pd = pageData[i];
+    w.startObj(pd.imgId);
+    w.emit(`<< /Type /XObject /Subtype /Image /Width ${pg.w} /Height ${pg.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${pg.jpeg.length} >>\nstream\n`);
+    w.emitRaw(pg.jpeg);
+    w.emit('\nendstream\nendobj\n');
+
+    const cs = `q ${boxW.toFixed(4)} 0 0 ${boxH.toFixed(4)} 0 0 cm /Img Do Q`;
+    const csB = w.enc.encode(cs);
+    w.startObj(pd.pageId);
+    w.emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${boxW.toFixed(4)} ${boxH.toFixed(4)}]${uu} /Contents ${pd.csId} 0 R /Resources << /XObject << /Img ${pd.imgId} 0 R >> >> >>\nendobj\n`);
+    w.startObj(pd.csId);
+    w.emit(`<< /Length ${csB.length} >>\nstream\n`);
+    w.emitRaw(csB);
+    w.emit('\nendstream\nendobj\n');
+  }
+
+  return w.finalize(catalogId);
+}
+
+// ════════════════════════════════════════════
+// COMPOSITE PDF: original-res raster images composited via PDF operators.
+// No canvas resampling — source JPEG bytes go straight into the PDF.
+// Clipping + rotation done in PDF content streams.
+// ════════════════════════════════════════════
+function buildRawPdfComposite(totalWIn, totalHIn, cfg, banners) {
+  const { finW, finH, inputBleed, outputBleed, sides, eL, eR, eT, eB } = cfg;
+  const { userUnit, boxW, boxH, s } = computeUserUnit(totalWIn, totalHIn);
+  const uu = userUnit !== 1 ? ` /UserUnit ${userUnit}` : '';
+
+  // Layout in inches (PDF coords: origin bottom-left, Y up)
+  const trimX = outputBleed + eL;                    // trim left from page left
+  const trimY = outputBleed + eB;                    // trim bottom from page bottom
+  const foldBot = trimY;                             // bottom fold line
+  const foldTop = trimY + finH;                      // top fold line
+  const trimCenterX = trimX + finW / 2;
+
+  // Image placement (inches) — image covers trim ± inputBleed
+  const imgWIn = finW + 2 * inputBleed;
+  const imgHIn = finH + 2 * inputBleed;
+  const imgX = trimX - inputBleed;
+  const imgY = trimY - inputBleed;
+
+  // Convert to box-units for PDF operators
+  const f = (v) => (v * s).toFixed(4);
+
+  const w = makePdfWriter();
+  w.emit('%PDF-1.6\n%\xE2\xE3\xCF\xD3\n');
+
+  const catalogId = w.allocId(); w.startObj(catalogId);
+  const pagesId = w.allocId();
+  w.emit(`<< /Type /Catalog /Pages ${pagesId} 0 R >>\nendobj\n`);
+
+  // Collect all pages to build Kids array
+  const allPageIds = [];
+
+  // Pre-emit Pages placeholder — we'll patch kids count later via a fixed-size approach
+  // Instead, pre-count pages
+  let totalPages = 0;
+  for (const b of banners) {
+    totalPages += 1; // front
+    if (!b.isSame) totalPages += 1; // back
+  }
+
+  // Pre-assign image XObject IDs for all banners
+  const bannerObjs = [];
+  for (const b of banners) {
+    const faceImgId = w.allocId();
+    const backImgId = b.isSame ? faceImgId : w.allocId();
+    bannerObjs.push({ faceImgId, backImgId });
+  }
+
+  // Pre-assign page+content IDs
+  const pageObjs = [];
+  for (let i = 0; i < totalPages; i++) {
+    pageObjs.push({ pageId: w.allocId(), csId: w.allocId() });
+  }
+
+  // Write Pages object
+  w.startObj(pagesId);
+  w.emit(`<< /Type /Pages /Kids [${pageObjs.map(p => `${p.pageId} 0 R`).join(' ')}] /Count ${totalPages} >>\nendobj\n`);
+
+  // Write image XObjects
+  for (let bi = 0; bi < banners.length; bi++) {
+    const b = banners[bi];
+    const bo = bannerObjs[bi];
+
+    w.startObj(bo.faceImgId);
+    w.emit(`<< /Type /XObject /Subtype /Image /Width ${b.facePxW} /Height ${b.facePxH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${b.faceJpeg.length} >>\nstream\n`);
+    w.emitRaw(b.faceJpeg);
+    w.emit('\nendstream\nendobj\n');
+
+    if (!b.isSame) {
+      w.startObj(bo.backImgId);
+      w.emit(`<< /Type /XObject /Subtype /Image /Width ${b.backPxW} /Height ${b.backPxH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${b.backJpeg.length} >>\nstream\n`);
+      w.emitRaw(b.backJpeg);
+      w.emit('\nendstream\nendobj\n');
+    }
+  }
+
+  // Build content streams and page objects
+  let pageIdx = 0;
+  for (let bi = 0; bi < banners.length; bi++) {
+    const b = banners[bi];
+    const bo = bannerObjs[bi];
+
+    // Compute image sizes in box-units for face and back
+    // Face image: maps to imgWIn × imgHIn inches at (imgX, imgY)
+    const fImgW = f(imgWIn), fImgH = f(imgHIn), fImgX = f(imgX), fImgY = f(imgY);
+    // Back image: same positioning (same finished size)
+    // For different-sized back images, the back maps to the same inch footprint
+    const bImgW = fImgW, bImgH = fImgH, bImgX = fImgX, bImgY = fImgY;
+
+    // ── FRONT page content stream ──
+    let cs = '';
+    // White background
+    cs += `q 1 1 1 rg 0 0 ${f(totalWIn)} ${f(totalHIn)} re f Q\n`;
+    // Face image in center zone (between fold lines, full width)
+    cs += `q 0 ${f(foldBot)} ${f(totalWIn)} ${f(finH)} re W n ${fImgW} 0 0 ${fImgH} ${fImgX} ${fImgY} cm /Face Do Q\n`;
+    // Top pocket: back image rotated 180° about (trimCenterX, foldTop)
+    if (eT > 0) {
+      cs += `q 0 ${f(foldTop)} ${f(totalWIn)} ${f(totalHIn - foldTop)} re W n `;
+      cs += `-1 0 0 -1 ${f(2 * trimCenterX)} ${f(2 * foldTop)} cm `;
+      cs += `${bImgW} 0 0 ${bImgH} ${bImgX} ${bImgY} cm /Back Do Q\n`;
+    }
+    // Bottom pocket: back image rotated 180° about (trimCenterX, foldBot)
+    if (eB > 0) {
+      cs += `q 0 0 ${f(totalWIn)} ${f(foldBot)} re W n `;
+      cs += `-1 0 0 -1 ${f(2 * trimCenterX)} ${f(2 * foldBot)} cm `;
+      cs += `${bImgW} 0 0 ${bImgH} ${bImgX} ${bImgY} cm /Back Do Q\n`;
+    }
+
+    const csBytes = w.enc.encode(cs);
+    const po = pageObjs[pageIdx++];
+    w.startObj(po.pageId);
+    w.emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${f(totalWIn)} ${f(totalHIn)}]${uu} /Contents ${po.csId} 0 R /Resources << /XObject << /Face ${bo.faceImgId} 0 R /Back ${bo.backImgId} 0 R >> >> >>\nendobj\n`);
+    w.startObj(po.csId);
+    w.emit(`<< /Length ${csBytes.length} >>\nstream\n`);
+    w.emitRaw(csBytes);
+    w.emit('\nendstream\nendobj\n');
+
+    // ── BACK page (only for different artwork) ──
+    if (!b.isSame) {
+      let csB = '';
+      csB += `q 1 1 1 rg 0 0 ${f(totalWIn)} ${f(totalHIn)} re f Q\n`;
+      // Back image in center zone
+      csB += `q 0 ${f(foldBot)} ${f(totalWIn)} ${f(finH)} re W n ${bImgW} 0 0 ${bImgH} ${bImgX} ${bImgY} cm /Back Do Q\n`;
+      // Top pocket: face image rotated 180°
+      if (eT > 0) {
+        csB += `q 0 ${f(foldTop)} ${f(totalWIn)} ${f(totalHIn - foldTop)} re W n `;
+        csB += `-1 0 0 -1 ${f(2 * trimCenterX)} ${f(2 * foldTop)} cm `;
+        csB += `${fImgW} 0 0 ${fImgH} ${fImgX} ${fImgY} cm /Face Do Q\n`;
+      }
+      if (eB > 0) {
+        csB += `q 0 0 ${f(totalWIn)} ${f(foldBot)} re W n `;
+        csB += `-1 0 0 -1 ${f(2 * trimCenterX)} ${f(2 * foldBot)} cm `;
+        csB += `${fImgW} 0 0 ${fImgH} ${fImgX} ${fImgY} cm /Face Do Q\n`;
+      }
+
+      const csBBytes = w.enc.encode(csB);
+      const poB = pageObjs[pageIdx++];
+      w.startObj(poB.pageId);
+      w.emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${f(totalWIn)} ${f(totalHIn)}]${uu} /Contents ${poB.csId} 0 R /Resources << /XObject << /Face ${bo.faceImgId} 0 R /Back ${bo.backImgId} 0 R >> >> >>\nendobj\n`);
+      w.startObj(poB.csId);
+      w.emit(`<< /Length ${csBBytes.length} >>\nstream\n`);
+      w.emitRaw(csBBytes);
+      w.emit('\nendstream\nendobj\n');
+    }
+  }
+
+  return w.finalize(catalogId);
 }
 
 // ════════════════════════════════════════════
@@ -1194,7 +1658,7 @@ clearBtn.addEventListener('click', () => {
   document.getElementById('finH').value = '';
   document.getElementById('inputBleed').value = '';
   document.getElementById('outputBleed').value = '';
-  previewWrap.innerHTML = '<div class="placeholder-msg"><div class="big">🖼️</div>Drop PDF files and click <strong>Generate Preview</strong></div>';
+  previewWrap.innerHTML = '<div class="placeholder-msg"><div class="big">🖼️</div>Drop PDF or image files and click <strong>Generate Preview</strong></div>';
 });
 </script>
 </body>
