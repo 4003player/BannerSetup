@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Banner Setup Tool</title>
 <script src="jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.js"></script>
 <style>
   :root {
@@ -391,7 +392,7 @@ async function loadPdfFile(file) {
     // The matchTrimBox function handles swapped matching, but we use viewport dims
   }
   return {
-    doc, data,
+    doc, data, rawBytes,
     numPages: doc.numPages,
     pages,
     mediaW: p1.mediaW,
@@ -1272,6 +1273,11 @@ downloadBtn.addEventListener('click', async () => {
 });
 
 async function downloadPrintReady(jsPDF) {
+  if (facePdf) {
+    // ── PDF SOURCE: use pdf-lib to preserve original colors/resolution ──
+    await downloadPrintReadyPdfLib();
+    return;
+  }
   let w, h, jpegData, pxW, pxH;
   if (faceRaster) {
     const dpi = parseFloat(document.getElementById('rasterDpi').value) || 150;
@@ -1280,16 +1286,53 @@ async function downloadPrintReady(jsPDF) {
     jpegData = rasterToFullResJpeg(faceRaster);
     pxW = faceRaster.pxW; pxH = faceRaster.pxH;
   } else {
-    w = facePdf.mediaW; h = facePdf.mediaH;
-    const maxPx = Math.min(16384, Math.round(Math.sqrt(100_000_000 * (Math.max(w,h) / Math.min(w,h)))));
-    const faceImg = await renderPage(facePdf.doc, 1, maxPx);
-    jpegData = canvasToJpegBytes(faceImg);
-    pxW = faceImg.width; pxH = faceImg.height;
+    return; // shouldn't reach here
   }
 
   downloadBtn.textContent = 'Building…';
   const pdfBytes = buildRawPdfSimple(w, h, [{ jpeg: jpegData, w: pxW, h: pxH }]);
-  const baseName = (facePdf ? facePdf.fileName : faceRaster.fileName).replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
+  const baseName = faceRaster.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
+  savePdfBlob(pdfBytes, `${baseName} - double side same.pdf`);
+}
+
+async function downloadPrintReadyPdfLib() {
+  const PTS = 72;
+  const outDoc = await PDFLib.PDFDocument.create();
+  const srcDoc = await PDFLib.PDFDocument.load(facePdf.rawBytes, { ignoreEncryption: true });
+  const [embeddedPage] = await outDoc.embedPages([srcDoc.getPages()[0]]);
+
+  const rawW = facePdf.mediaW * PTS;
+  const rawH = facePdf.mediaH * PTS;
+  const MAX_BOX = 14400;
+
+  let userUnit = 1, w = rawW, h = rawH;
+  if (rawW > MAX_BOX || rawH > MAX_BOX) {
+    userUnit = Math.ceil(Math.max(rawW, rawH) / MAX_BOX * 100) / 100;
+    w = rawW / userUnit;
+    h = rawH / userUnit;
+  }
+  const S = PTS / userUnit;
+
+  // Front page — as-is
+  const frontPage = outDoc.addPage([w, h]);
+  if (userUnit > 1) frontPage.node.set(PDFLib.PDFName.of('UserUnit'), PDFLib.PDFNumber.of(userUnit));
+  frontPage.drawPage(embeddedPage, { x: 0, y: 0, width: w, height: h });
+
+  // Back page — NOT needed for double-side same (physical sheet flip handles it)
+  // But we include it rotated 180° for reference
+
+  const backPage = outDoc.addPage([w, h]);
+  if (userUnit > 1) backPage.node.set(PDFLib.PDFName.of('UserUnit'), PDFLib.PDFNumber.of(userUnit));
+  // Rotate 180° about center: push state, translate to center, scale -1,-1
+  backPage.pushOperators(PDFLib.pushGraphicsState());
+  backPage.pushOperators(
+    PDFLib.concatTransformationMatrix(-1, 0, 0, -1, w, h)
+  );
+  backPage.drawPage(embeddedPage, { x: 0, y: 0, width: w, height: h });
+  backPage.pushOperators(PDFLib.popGraphicsState());
+
+  const pdfBytes = await outDoc.save();
+  const baseName = facePdf.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
   savePdfBlob(pdfBytes, `${baseName} - double side same.pdf`);
 }
 
@@ -1309,6 +1352,7 @@ async function downloadSetup(jsPDF) {
       backPxW = backRaster.pxW; backPxH = backRaster.pxH;
       isSame = false;
     } else if (backPdf) {
+      // Back is PDF but face is raster — rasterize the back PDF
       const backImg = await renderPage(backPdf.doc, 1, 16384);
       backJpeg = canvasToJpegBytes(backImg);
       backPxW = backImg.width; backPxH = backImg.height;
@@ -1330,40 +1374,252 @@ async function downloadSetup(jsPDF) {
     return;
   }
 
-  // ── PDF SOURCE: canvas compositing (source is vector, must rasterize) ──
-  const MAX_PX = 100_000_000;
-  const MAX_SIDE = 16384;
-  let targetDPI = Math.floor(Math.min(
-    MAX_SIDE / totalW,
-    MAX_SIDE / totalH,
-    Math.sqrt(MAX_PX / (totalW * totalH))
-  ));
-  targetDPI = Math.max(targetDPI, 36);
-  let imgW = Math.round(totalW * targetDPI);
-  let imgH = Math.round(totalH * targetDPI);
+  // ── PDF SOURCE: use pdf-lib to preserve original colors and resolution ──
+  if (facePdf) {
+    await downloadSetupPdfLib(cfg);
+    return;
+  }
+}
 
-  const maxRenderPx = Math.min(Math.max(imgW, imgH), MAX_SIDE);
-  const pairs = await getAllBannerPairs(maxRenderPx);
+async function downloadSetupPdfLib(cfg) {
+  const PTS = 72;
+  const { finW, finH, inputBleed, outputBleed, sides, eL, eR, eT, eB, totalW, totalH } = cfg;
 
-  const pageImages = [];
+  downloadBtn.textContent = 'Preparing pages…';
+
+  const outDoc = await PDFLib.PDFDocument.create();
+
+  // Load source documents and embed pages
+  const faceSrcDoc = await PDFLib.PDFDocument.load(facePdf.rawBytes, { ignoreEncryption: true });
+
+  let backSrcDoc = null;
+  if (backPdf) {
+    backSrcDoc = await PDFLib.PDFDocument.load(backPdf.rawBytes, { ignoreEncryption: true });
+  }
+  // If back is a raster image (backRaster set, no backPdf), embed it as image
+  let backRasterEmbed = null;
+  if (backRaster && !backPdf) {
+    const backJpeg = rasterToFullResJpeg(backRaster);
+    backRasterEmbed = await outDoc.embedJpg(backJpeg);
+  }
+
+  // Determine banner pairs (same logic as getAllBannerPairs)
+  const mode = getDetectedMode();
+  const pairs = [];
+
+  if (mode === 'diff-pages') {
+    // Multipage PDF: pages 1/2 = banner 1 face/back, etc.
+    for (let p = 0; p < faceSrcDoc.getPageCount(); p += 2) {
+      const facePage = faceSrcDoc.getPages()[p];
+      const hasBack = p + 1 < faceSrcDoc.getPageCount();
+      pairs.push({
+        facePageIdx: p,
+        backPageIdx: hasBack ? p + 1 : p,
+        isSame: !hasBack,
+        faceSrc: faceSrcDoc,
+        backSrc: faceSrcDoc
+      });
+    }
+  } else if (mode === 'diff-files') {
+    pairs.push({
+      facePageIdx: 0,
+      backPageIdx: 0,
+      isSame: false,
+      faceSrc: faceSrcDoc,
+      backSrc: backSrcDoc  // null if back is raster (backRasterEmbed used instead)
+    });
+  } else {
+    // Same both sides
+    pairs.push({
+      facePageIdx: 0,
+      backPageIdx: 0,
+      isSame: true,
+      faceSrc: faceSrcDoc,
+      backSrc: faceSrcDoc
+    });
+  }
+
+  // Output page dimensions — handle UserUnit for banners > 200″
+  const MAX_BOX = 14400; // 200 inches in points
+  const rawWPts = totalW * PTS;
+  const rawHPts = totalH * PTS;
+  let userUnit = 1;
+  let pageWPts, pageHPts, scaleFactor;
+  if (rawWPts > MAX_BOX || rawHPts > MAX_BOX) {
+    userUnit = Math.ceil(Math.max(rawWPts, rawHPts) / MAX_BOX * 100) / 100;
+    pageWPts = rawWPts / userUnit;
+    pageHPts = rawHPts / userUnit;
+    scaleFactor = PTS / userUnit;  // use this instead of PTS for coordinates
+  } else {
+    pageWPts = rawWPts;
+    pageHPts = rawHPts;
+    scaleFactor = PTS;
+  }
+
+  // Layout coordinates in inches (PDF coords: origin bottom-left, Y up)
+  const S = scaleFactor;  // points-per-inch scaled by UserUnit
+  const trimX = outputBleed + eL;       // trim left from page left
+  const trimY = outputBleed + eB;       // trim bottom from page bottom
+  const foldBot = trimY;                // bottom fold line
+  const foldTop = trimY + finH;         // top fold line
+  const trimCenterX = trimX + finW / 2;
+
+  // Image placement (inches) — image covers trim ± inputBleed
+  const imgWIn = finW + 2 * inputBleed;
+  const imgHIn = finH + 2 * inputBleed;
+  const imgX = trimX - inputBleed;
+  const imgY = trimY - inputBleed;
+
+  // Convert to points
+  const f = (v) => (v * S).toFixed(4);
+
   for (let bi = 0; bi < pairs.length; bi++) {
-    const { faceImg, backImg, isSame } = pairs[bi];
+    const pair = pairs[bi];
+    downloadBtn.textContent = `Building… Banner ${bi + 1} Front`;
 
-    downloadBtn.textContent = `Building… Banner ${bi+1} Front`;
-    const frontCanvas = buildCleanArtwork(imgW, imgH, faceImg, backImg, cfg, false, isSame);
-    pageImages.push({ jpeg: canvasToJpegBytes(frontCanvas), w: imgW, h: imgH });
+    // Embed the face and back pages
+    const [embFace] = await outDoc.embedPages([pair.faceSrc.getPages()[pair.facePageIdx]]);
+    let embBack, backIsImage = false;
+    if (pair.isSame) {
+      embBack = embFace;
+    } else if (!pair.backSrc && backRasterEmbed) {
+      // Back is a raster image, not a PDF page
+      embBack = backRasterEmbed;
+      backIsImage = true;
+    } else if (pair.backSrc) {
+      [embBack] = await outDoc.embedPages([pair.backSrc.getPages()[pair.backPageIdx]]);
+    } else {
+      embBack = embFace; // fallback
+    }
 
-    if (!isSame) {
-      downloadBtn.textContent = `Building… Banner ${bi+1} Back`;
-      const backCanvas = buildCleanArtwork(imgW, imgH, backImg, faceImg, cfg, false, false);
-      pageImages.push({ jpeg: canvasToJpegBytes(backCanvas), w: imgW, h: imgH });
+    // Helper: draw face or back using correct method
+    function drawEmbed(page, embed, isImage, opts) {
+      if (isImage) page.drawImage(embed, opts);
+      else page.drawPage(embed, opts);
+    }
+
+    // ── FRONT page ──
+    const frontPage = outDoc.addPage([pageWPts, pageHPts]);
+    if (userUnit > 1) {
+      frontPage.node.set(PDFLib.PDFName.of('UserUnit'), PDFLib.PDFNumber.of(userUnit));
+    }
+
+    // White background
+    frontPage.drawRectangle({
+      x: 0, y: 0, width: pageWPts, height: pageHPts,
+      color: PDFLib.rgb(1, 1, 1)
+    });
+
+    // Face image in center zone (between fold lines, full width)
+    frontPage.pushOperators(PDFLib.pushGraphicsState());
+    frontPage.pushOperators(
+      PDFLib.rectangle(0, foldBot * S, pageWPts, finH * S),
+      PDFLib.clip(), PDFLib.endPath()
+    );
+    frontPage.drawPage(embFace, {
+      x: imgX * S, y: imgY * S,
+      width: imgWIn * S, height: imgHIn * S
+    });
+    frontPage.pushOperators(PDFLib.popGraphicsState());
+
+    // Top pocket: back image rotated 180° about (trimCenterX, foldTop)
+    if (eT > 0) {
+      frontPage.pushOperators(PDFLib.pushGraphicsState());
+      frontPage.pushOperators(
+        PDFLib.rectangle(0, foldTop * S, pageWPts, (totalH - foldTop) * S),
+        PDFLib.clip(), PDFLib.endPath()
+      );
+      frontPage.pushOperators(
+        PDFLib.concatTransformationMatrix(-1, 0, 0, -1, 2 * trimCenterX * S, 2 * foldTop * S)
+      );
+      drawEmbed(frontPage, embBack, backIsImage, {
+        x: imgX * S, y: imgY * S,
+        width: imgWIn * S, height: imgHIn * S
+      });
+      frontPage.pushOperators(PDFLib.popGraphicsState());
+    }
+
+    // Bottom pocket: back image rotated 180° about (trimCenterX, foldBot)
+    if (eB > 0) {
+      frontPage.pushOperators(PDFLib.pushGraphicsState());
+      frontPage.pushOperators(
+        PDFLib.rectangle(0, 0, pageWPts, foldBot * S),
+        PDFLib.clip(), PDFLib.endPath()
+      );
+      frontPage.pushOperators(
+        PDFLib.concatTransformationMatrix(-1, 0, 0, -1, 2 * trimCenterX * S, 2 * foldBot * S)
+      );
+      drawEmbed(frontPage, embBack, backIsImage, {
+        x: imgX * S, y: imgY * S,
+        width: imgWIn * S, height: imgHIn * S
+      });
+      frontPage.pushOperators(PDFLib.popGraphicsState());
+    }
+
+    // ── BACK page (only for different artwork) ──
+    if (!pair.isSame) {
+      downloadBtn.textContent = `Building… Banner ${bi + 1} Back`;
+      const backPage = outDoc.addPage([pageWPts, pageHPts]);
+      if (userUnit > 1) {
+        backPage.node.set(PDFLib.PDFName.of('UserUnit'), PDFLib.PDFNumber.of(userUnit));
+      }
+
+      // White background
+      backPage.drawRectangle({
+        x: 0, y: 0, width: pageWPts, height: pageHPts,
+        color: PDFLib.rgb(1, 1, 1)
+      });
+
+      // Back image in center zone
+      backPage.pushOperators(PDFLib.pushGraphicsState());
+      backPage.pushOperators(
+        PDFLib.rectangle(0, foldBot * S, pageWPts, finH * S),
+        PDFLib.clip(), PDFLib.endPath()
+      );
+      drawEmbed(backPage, embBack, backIsImage, {
+        x: imgX * S, y: imgY * S,
+        width: imgWIn * S, height: imgHIn * S
+      });
+      backPage.pushOperators(PDFLib.popGraphicsState());
+
+      // Top pocket: face image rotated 180°
+      if (eT > 0) {
+        backPage.pushOperators(PDFLib.pushGraphicsState());
+        backPage.pushOperators(
+          PDFLib.rectangle(0, foldTop * S, pageWPts, (totalH - foldTop) * S),
+          PDFLib.clip(), PDFLib.endPath()
+        );
+        backPage.pushOperators(
+          PDFLib.concatTransformationMatrix(-1, 0, 0, -1, 2 * trimCenterX * S, 2 * foldTop * S)
+        );
+        backPage.drawPage(embFace, {
+          x: imgX * S, y: imgY * S,
+          width: imgWIn * S, height: imgHIn * S
+        });
+        backPage.pushOperators(PDFLib.popGraphicsState());
+      }
+
+      // Bottom pocket: face image rotated 180°
+      if (eB > 0) {
+        backPage.pushOperators(PDFLib.pushGraphicsState());
+        backPage.pushOperators(
+          PDFLib.rectangle(0, 0, pageWPts, foldBot * S),
+          PDFLib.clip(), PDFLib.endPath()
+        );
+        backPage.pushOperators(
+          PDFLib.concatTransformationMatrix(-1, 0, 0, -1, 2 * trimCenterX * S, 2 * foldBot * S)
+        );
+        backPage.drawPage(embFace, {
+          x: imgX * S, y: imgY * S,
+          width: imgWIn * S, height: imgHIn * S
+        });
+        backPage.pushOperators(PDFLib.popGraphicsState());
+      }
     }
   }
 
-  await new Promise(r => setTimeout(r, 50));
-  downloadBtn.textContent = 'Assembling PDF…';
-
-  const pdfBytes = buildRawPdfSimple(totalW, totalH, pageImages);
+  downloadBtn.textContent = 'Saving…';
+  const pdfBytes = await outDoc.save();
   const baseName = facePdf.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
   savePdfBlob(pdfBytes, `${baseName} - banner print.pdf`);
 }
