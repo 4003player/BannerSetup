@@ -1295,7 +1295,7 @@ async function downloadPrintReady(jsPDF) {
 
 async function downloadSetup(jsPDF) {
   const cfg = getConfig();
-  const { totalW, totalH } = cfg;
+  const { totalW, totalH, finW, finH, outputBleed, eL, eR, eT, eB } = cfg;
 
   // ── RASTER SOURCE: embed original-resolution images, composite via PDF operators ──
   if (faceRaster) {
@@ -1323,7 +1323,10 @@ async function downloadSetup(jsPDF) {
       faceJpeg, facePxW, facePxH,
       backJpeg, backPxW, backPxH,
       isSame
-    }]);
+    }], {
+      trimBoxIn: [outputBleed + eL, outputBleed + eB, outputBleed + eL + finW, outputBleed + eB + finH],
+      bleedBoxIn: outputBleed > 0 ? [eL, eB, eL + finW + 2*outputBleed, eB + finH + 2*outputBleed] : undefined
+    });
 
     const baseName = faceRaster.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
     savePdfBlob(pdfBytes, `${baseName} - banner print.pdf`);
@@ -1363,7 +1366,10 @@ async function downloadSetup(jsPDF) {
   await new Promise(r => setTimeout(r, 50));
   downloadBtn.textContent = 'Assembling PDF…';
 
-  const pdfBytes = buildRawPdfSimple(totalW, totalH, pageImages);
+  const pdfBytes = buildRawPdfSimple(totalW, totalH, pageImages, {
+    trimBoxIn: [outputBleed + eL, outputBleed + eB, outputBleed + eL + finW, outputBleed + eB + finH],
+    bleedBoxIn: outputBleed > 0 ? [eL, eB, eL + finW + 2*outputBleed, eB + finH + 2*outputBleed] : undefined
+  });
   const baseName = facePdf.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
   savePdfBlob(pdfBytes, `${baseName} - banner print.pdf`);
 }
@@ -1453,8 +1459,20 @@ function computeUserUnit(pageWIn, pageHIn) {
 }
 
 // ── Simple PDF: pre-composited raster pages (for PDF sources / print-ready) ──
-function buildRawPdfSimple(pageWIn, pageHIn, pages) {
-  const { userUnit, boxW, boxH } = computeUserUnit(pageWIn, pageHIn);
+function buildRawPdfSimple(pageWIn, pageHIn, pages, opts) {
+  opts = opts || {};
+  const { userUnit, boxW, boxH, s } = computeUserUnit(pageWIn, pageHIn);
+
+  // Build TrimBox / BleedBox strings (coords in inches → box-units via s)
+  let boxExtra = '';
+  if (opts.trimBoxIn) {
+    const [tx1,ty1,tx2,ty2] = opts.trimBoxIn;
+    boxExtra += ` /TrimBox [${(tx1*s).toFixed(4)} ${(ty1*s).toFixed(4)} ${(tx2*s).toFixed(4)} ${(ty2*s).toFixed(4)}]`;
+  }
+  if (opts.bleedBoxIn) {
+    const [bx1,by1,bx2,by2] = opts.bleedBoxIn;
+    boxExtra += ` /BleedBox [${(bx1*s).toFixed(4)} ${(by1*s).toFixed(4)} ${(bx2*s).toFixed(4)} ${(by2*s).toFixed(4)}]`;
+  }
   const w = makePdfWriter();
   w.emit('%PDF-1.6\n%\xE2\xE3\xCF\xD3\n');
 
@@ -1482,7 +1500,7 @@ function buildRawPdfSimple(pageWIn, pageHIn, pages) {
     const cs = `q ${boxW.toFixed(4)} 0 0 ${boxH.toFixed(4)} 0 0 cm /Img Do Q`;
     const csB = w.enc.encode(cs);
     w.startObj(pd.pageId);
-    w.emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${boxW.toFixed(4)} ${boxH.toFixed(4)}]${uu} /Contents ${pd.csId} 0 R /Resources << /XObject << /Img ${pd.imgId} 0 R >> >> >>\nendobj\n`);
+    w.emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${boxW.toFixed(4)} ${boxH.toFixed(4)}]${uu}${boxExtra} /Contents ${pd.csId} 0 R /Resources << /XObject << /Img ${pd.imgId} 0 R >> >> >>\nendobj\n`);
     w.startObj(pd.csId);
     w.emit(`<< /Length ${csB.length} >>\nstream\n`);
     w.emitRaw(csB);
@@ -1497,10 +1515,22 @@ function buildRawPdfSimple(pageWIn, pageHIn, pages) {
 // No canvas resampling — source JPEG bytes go straight into the PDF.
 // Clipping + rotation done in PDF content streams.
 // ════════════════════════════════════════════
-function buildRawPdfComposite(totalWIn, totalHIn, cfg, banners) {
+function buildRawPdfComposite(totalWIn, totalHIn, cfg, banners, opts) {
+  opts = opts || {};
   const { finW, finH, inputBleed, outputBleed, sides, eL, eR, eT, eB } = cfg;
   const { userUnit, boxW, boxH, s } = computeUserUnit(totalWIn, totalHIn);
   const uu = userUnit !== 1 ? ` /UserUnit ${userUnit}` : '';
+
+  // Build TrimBox / BleedBox strings
+  let boxExtra = '';
+  if (opts.trimBoxIn) {
+    const [tx1,ty1,tx2,ty2] = opts.trimBoxIn;
+    boxExtra += ` /TrimBox [${(tx1*s).toFixed(4)} ${(ty1*s).toFixed(4)} ${(tx2*s).toFixed(4)} ${(ty2*s).toFixed(4)}]`;
+  }
+  if (opts.bleedBoxIn) {
+    const [bx1,by1,bx2,by2] = opts.bleedBoxIn;
+    boxExtra += ` /BleedBox [${(bx1*s).toFixed(4)} ${(by1*s).toFixed(4)} ${(bx2*s).toFixed(4)} ${(by2*s).toFixed(4)}]`;
+  }
 
   // Layout in inches (PDF coords: origin bottom-left, Y up)
   const trimX = outputBleed + eL;                    // trim left from page left
@@ -1607,7 +1637,7 @@ function buildRawPdfComposite(totalWIn, totalHIn, cfg, banners) {
     const csBytes = w.enc.encode(cs);
     const po = pageObjs[pageIdx++];
     w.startObj(po.pageId);
-    w.emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${f(totalWIn)} ${f(totalHIn)}]${uu} /Contents ${po.csId} 0 R /Resources << /XObject << /Face ${bo.faceImgId} 0 R /Back ${bo.backImgId} 0 R >> >> >>\nendobj\n`);
+    w.emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${f(totalWIn)} ${f(totalHIn)}]${uu}${boxExtra} /Contents ${po.csId} 0 R /Resources << /XObject << /Face ${bo.faceImgId} 0 R /Back ${bo.backImgId} 0 R >> >> >>\nendobj\n`);
     w.startObj(po.csId);
     w.emit(`<< /Length ${csBytes.length} >>\nstream\n`);
     w.emitRaw(csBytes);
@@ -1634,7 +1664,7 @@ function buildRawPdfComposite(totalWIn, totalHIn, cfg, banners) {
       const csBBytes = w.enc.encode(csB);
       const poB = pageObjs[pageIdx++];
       w.startObj(poB.pageId);
-      w.emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${f(totalWIn)} ${f(totalHIn)}]${uu} /Contents ${poB.csId} 0 R /Resources << /XObject << /Face ${bo.faceImgId} 0 R /Back ${bo.backImgId} 0 R >> >> >>\nendobj\n`);
+      w.emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${f(totalWIn)} ${f(totalHIn)}]${uu}${boxExtra} /Contents ${poB.csId} 0 R /Resources << /XObject << /Face ${bo.faceImgId} 0 R /Back ${bo.backImgId} 0 R >> >> >>\nendobj\n`);
       w.startObj(poB.csId);
       w.emit(`<< /Length ${csBBytes.length} >>\nstream\n`);
       w.emitRaw(csBBytes);
