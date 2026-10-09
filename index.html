@@ -25,7 +25,7 @@
   .app-header h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
   .app-header .subtitle { color: var(--text-dim); font-size: 12px; }
 
-  .main-layout { display: grid; grid-template-columns: 330px 1fr; height: calc(100vh - 46px); }
+  .main-layout { display: grid; grid-template-columns: 330px 1fr; height: calc(100vh - 82px); }
 
   /* ── Config Panel ── */
   .config-panel { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; padding: 12px; }
@@ -140,6 +140,27 @@
   .placeholder-msg { color: var(--text-dim); font-size: 14px; margin-top: 80px; text-align: center; }
   .placeholder-msg .big { font-size: 40px; margin-bottom: 8px; }
   .setup-only { }
+
+  /* ── Tab bar ── */
+  .tab-bar {
+    display: flex; gap: 0; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+  }
+  .tab-bar button {
+    background: none; border: none; border-bottom: 3px solid transparent;
+    padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+    color: var(--text-dim); transition: all 0.2s; font-family: inherit;
+  }
+  .tab-bar button:hover { color: var(--text); }
+  .tab-bar button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: grid; grid-template-columns: 330px 1fr; height: calc(100vh - 82px); }
+
+  /* ── Grommet tool extras ── */
+  .side-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+  .side-card.disabled { opacity: 0.45; }
+  .side-card .mini-row .unit { font-size: 10px; color: var(--text-dim); }
+  .grommet-legend .legend-swatch.grommet { width: 10px; height: 10px; border-radius: 50%; background: #fff; border: 2px solid #000; }
 </style>
 </head>
 <body>
@@ -149,7 +170,12 @@
   <span class="subtitle">Double-Sided Vinyl — Pockets &amp; Finishing</span>
 </div>
 
-<div class="main-layout">
+<div class="tab-bar">
+  <button class="active" onclick="switchTab('setup')">🔧 Banner Setup</button>
+  <button onclick="switchTab('grommets')">🔘 Grommet Marks</button>
+</div>
+
+<div class="main-layout tab-content active" id="tab-setup">
   <div class="config-panel">
 
     <!-- Input Mode -->
@@ -251,6 +277,136 @@
     </div>
   </div>
 </div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- GROMMET MARKS TAB                         -->
+<!-- ══════════════════════════════════════════ -->
+<div class="tab-content" id="tab-grommets" style="grid-template-columns:340px 1fr">
+  <div class="config-panel">
+
+    <!-- File Input -->
+    <div class="config-section">
+      <h3>📄 Input PDF</h3>
+      <div class="config-body">
+        <div class="drop-zone" id="grDropZone">
+          <div class="dz-icon">📎</div>
+          <div class="dz-label">Drop Banner PDF<br><small>PDF with bleed</small></div>
+          <div class="dz-file" id="grFileName"></div>
+        </div>
+        <input type="file" id="grFileInput" accept=".pdf">
+        <div class="hint" id="grPdfInfo"></div>
+      </div>
+    </div>
+
+    <!-- Finished Size -->
+    <div class="config-section">
+      <h3>📐 Finished Banner Size</h3>
+      <div class="config-body">
+        <div class="field-row">
+          <label>Width</label>
+          <input type="number" id="grFinW" value="" step="0.125" min="1" placeholder="—">
+          <span class="unit">in</span>
+        </div>
+        <div class="field-row">
+          <label>Height</label>
+          <input type="number" id="grFinH" value="" step="0.125" min="1" placeholder="—">
+          <span class="unit">in</span>
+        </div>
+        <div class="field-row">
+          <label>Input bleed</label>
+          <input type="number" id="grInputBleed" value="" step="0.125" min="0" placeholder="0">
+          <span class="unit">in</span>
+        </div>
+        <div class="hint" id="grSizeHint"></div>
+      </div>
+    </div>
+
+    <!-- Hem Configuration -->
+    <div class="config-section">
+      <h3>🪡 Hem Sides & Depth</h3>
+      <div class="config-body">
+        <div class="side-grid" id="grHemConfig"></div>
+        <div class="hint">Bleed from the PDF prints into the hem area. Grommets centered in hem.</div>
+      </div>
+    </div>
+
+    <!-- Grommet Sides -->
+    <div class="config-section">
+      <h3>🔘 Grommets Per Side</h3>
+      <div class="config-body">
+        <div class="side-grid" id="grGrSideConfig"></div>
+        <div class="hint">
+          <strong>Interval:</strong> corners + spaced at ~N″ (adjusted to divide evenly).<br>
+          <strong>Count:</strong> exactly N grommets incl. corners.
+        </div>
+      </div>
+    </div>
+
+    <!-- Corner Options -->
+    <div class="config-section">
+      <h3>📍 Corner Grommets</h3>
+      <div class="config-body">
+        <div class="field-row">
+          <label>Corners</label>
+          <select id="grCorners">
+            <option value="all" selected>All Corners</option>
+            <option value="top">Top Corners Only</option>
+            <option value="bottom">Bottom Corners Only</option>
+            <option value="none">No Corners</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mark Appearance -->
+    <div class="config-section">
+      <h3>🎯 Mark Appearance</h3>
+      <div class="config-body">
+        <div class="field-row">
+          <label>Circle Ø</label>
+          <input type="number" id="grDia" value="0.18" step="0.01" min="0.05">
+          <span class="unit">in</span>
+        </div>
+        <div class="field-row">
+          <label>Stroke</label>
+          <input type="number" id="grStroke" value="2" step="0.5" min="0.5">
+          <span class="unit">pt</span>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn" id="grGenerateBtn" disabled>Generate Preview</button>
+    <button class="btn download" id="grDownloadBtn" disabled>⬇ Download PDF with Grommets</button>
+    <button class="btn secondary" id="grClearBtn">Clear / Reset</button>
+
+  </div>
+
+  <div class="preview-area" id="grPreviewArea">
+    <div class="legend grommet-legend">
+      <div class="legend-item"><div class="legend-swatch trim"></div> Trim Line</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#000;height:4px"></div> Cut Line (4pt, hem sides)</div>
+      <div class="legend-item"><div class="legend-swatch hem"></div> Hem Area</div>
+      <div class="legend-item"><div class="legend-swatch grommet"></div> Grommet Mark</div>
+    </div>
+    <div id="grPreviewWrap">
+      <div class="placeholder-msg"><div class="big">🖼️</div>Drop a banner PDF and click <strong>Generate Preview</strong></div>
+    </div>
+  </div>
+</div>
+
+<!-- Tab switcher (plain script, before modules) -->
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.querySelectorAll('.tab-bar button').forEach(b => {
+    if ((tab === 'setup' && b.textContent.includes('Banner')) ||
+        (tab === 'grommets' && b.textContent.includes('Grommet')))
+      b.classList.add('active');
+  });
+}
+</script>
 
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.min.mjs';
@@ -1331,9 +1487,23 @@ async function downloadPrintReadyPdfLib() {
   backPage.drawPage(embeddedPage, { x: 0, y: 0, width: w, height: h });
   backPage.pushOperators(PDFLib.popGraphicsState());
 
-  const pdfBytes = await outDoc.save();
+  // Set TrimBox and BleedBox on both pages
+  // For print-ready, trim = the TrimBox from source if present, else full page
+  const srcTrimW = facePdf.trimW, srcTrimH = facePdf.trimH;
+  if (srcTrimW !== null) {
+    const S = PTS / userUnit;
+    const tbx1 = facePdf.bleedL * S, tby1 = facePdf.bleedB * S;
+    const tbx2 = (facePdf.bleedL + srcTrimW) * S, tby2 = (facePdf.bleedB + srcTrimH) * S;
+    for (const pg of [frontPage, backPage]) {
+      pg.node.set(PDFLib.PDFName.of('TrimBox'), outDoc.context.obj([tbx1, tby1, tbx2, tby2]));
+      pg.node.set(PDFLib.PDFName.of('BleedBox'), outDoc.context.obj([0, 0, w, h]));
+    }
+  }
+
+  const pdfBytes = await outDoc.save({ useObjectStreams: false });
   const baseName = facePdf.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
   savePdfBlob(pdfBytes, `${baseName} - double side same.pdf`);
+  downloadPreviewPdf(baseName);
 }
 
 async function downloadSetup(jsPDF) {
@@ -1371,6 +1541,7 @@ async function downloadSetup(jsPDF) {
 
     const baseName = faceRaster.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
     savePdfBlob(pdfBytes, `${baseName} - banner print.pdf`);
+    downloadPreviewPdf(baseName);
     return;
   }
 
@@ -1618,10 +1789,24 @@ async function downloadSetupPdfLib(cfg) {
     }
   }
 
+  // Set TrimBox and BleedBox on all pages
+  // TrimBox = full print sheet (trim + hems/pockets) — hems fold under, not cut off
+  // BleedBox = print sheet + outputBleed
+  const allPages = outDoc.getPages();
+  for (const pg of allPages) {
+    // TrimBox = inside the output bleed (the material edge where cutting happens)
+    const tbx1 = outputBleed * S, tby1 = outputBleed * S;
+    const tbx2 = (totalW - outputBleed) * S, tby2 = (totalH - outputBleed) * S;
+    pg.node.set(PDFLib.PDFName.of('TrimBox'), outDoc.context.obj([tbx1, tby1, tbx2, tby2]));
+    // BleedBox = full page (MediaBox)
+    pg.node.set(PDFLib.PDFName.of('BleedBox'), outDoc.context.obj([0, 0, pageWPts, pageHPts]));
+  }
+
   downloadBtn.textContent = 'Saving…';
-  const pdfBytes = await outDoc.save();
+  const pdfBytes = await outDoc.save({ useObjectStreams: false });
   const baseName = facePdf.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
   savePdfBlob(pdfBytes, `${baseName} - banner print.pdf`);
+  downloadPreviewPdf(baseName);
 }
 
 // ════════════════════════════════════════════
@@ -1904,6 +2089,77 @@ function buildRawPdfComposite(totalWIn, totalHIn, cfg, banners) {
 // ════════════════════════════════════════════
 // CLEAR / RESET
 // ════════════════════════════════════════════
+
+// ── Download preview PDF showing fold lines, overlays, etc. ──
+function downloadPreviewPdf(baseName) {
+  const canvases = document.querySelectorAll('#previewWrap .canvas-wrap canvas');
+  if (!canvases.length) return;
+
+  const pages = [];
+  canvases.forEach(c => {
+    const dataUrl = c.toDataURL('image/jpeg', 0.92);
+    const bin = atob(dataUrl.split(',')[1]);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const aspect = c.width / c.height;
+    let pgW, pgH;
+    if (aspect >= 1) { pgW = Math.min(17 * 72, 1224); pgH = pgW / aspect; }
+    else { pgH = Math.min(17 * 72, 1224); pgW = pgH * aspect; }
+    pages.push({ jpeg: arr, w: c.width, h: c.height, pgW, pgH });
+  });
+
+  const enc = new TextEncoder();
+  const chunks = []; const offsets = [];
+  let pos = 0, nextObj = 1;
+  function emit(s) { const b = enc.encode(s); chunks.push(b); pos += b.length; }
+  function emitRaw(a) { chunks.push(a); pos += a.length; }
+  function startObj(id) { offsets[id] = pos; emit(`${id} 0 obj\n`); }
+  function alloc() { return nextObj++; }
+
+  emit('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  const catId = alloc(); startObj(catId);
+  const pagesId = alloc();
+  emit(`<< /Type /Catalog /Pages ${pagesId} 0 R >>\nendobj\n`);
+
+  const pageData = [];
+  for (let i = 0; i < pages.length; i++) pageData.push({ imgId: alloc(), pageId: alloc(), csId: alloc() });
+
+  startObj(pagesId);
+  emit(`<< /Type /Pages /Kids [${pageData.map(p => `${p.pageId} 0 R`).join(' ')}] /Count ${pages.length} >>\nendobj\n`);
+
+  for (let i = 0; i < pages.length; i++) {
+    const pg = pages[i], pd = pageData[i];
+    startObj(pd.imgId);
+    emit(`<< /Type /XObject /Subtype /Image /Width ${pg.w} /Height ${pg.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${pg.jpeg.length} >>\nstream\n`);
+    emitRaw(pg.jpeg);
+    emit('\nendstream\nendobj\n');
+    const cs = `q ${pg.pgW.toFixed(2)} 0 0 ${pg.pgH.toFixed(2)} 0 0 cm /Img Do Q`;
+    const csB = enc.encode(cs);
+    startObj(pd.pageId);
+    emit(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pg.pgW.toFixed(2)} ${pg.pgH.toFixed(2)}] /Contents ${pd.csId} 0 R /Resources << /XObject << /Img ${pd.imgId} 0 R >> >> >>\nendobj\n`);
+    startObj(pd.csId);
+    emit(`<< /Length ${csB.length} >>\nstream\n`);
+    emitRaw(csB);
+    emit('\nendstream\nendobj\n');
+  }
+
+  const xrefPos = pos;
+  emit('xref\n');
+  emit(`0 ${nextObj}\n`);
+  emit('0000000000 65535 f \n');
+  for (let i = 1; i < nextObj; i++) emit(String(offsets[i] || 0).padStart(10, '0') + ' 00000 n \n');
+  emit('trailer\n');
+  emit(`<< /Size ${nextObj} /Root ${catId} 0 R >>\n`);
+  emit('startxref\n');
+  emit(`${xrefPos}\n`);
+  emit('%%EOF\n');
+
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const out = new Uint8Array(totalLen);
+  let p = 0;
+  for (const c of chunks) { out.set(c, p); p += c.length; }
+  savePdfBlob(out, `${baseName} - preview.pdf`);
+}
 clearBtn.addEventListener('click', () => {
   clearFace();
   clearBack();
@@ -1915,6 +2171,386 @@ clearBtn.addEventListener('click', () => {
   document.getElementById('inputBleed').value = '';
   document.getElementById('outputBleed').value = '';
   previewWrap.innerHTML = '<div class="placeholder-msg"><div class="big">🖼️</div>Drop PDF or image files and click <strong>Generate Preview</strong></div>';
+});
+</script>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- GROMMET TAB LOGIC                         -->
+<!-- ══════════════════════════════════════════ -->
+<script type="module">
+import * as pdfjsLib2 from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.min.mjs';
+
+const GR_SIDES = ['top','bottom','left','right'];
+let grPdfState = null;
+
+// ── Build hem config cards ──
+const grHemConfig = document.getElementById('grHemConfig');
+GR_SIDES.forEach(side => {
+  const card = document.createElement('div');
+  card.className = 'side-card';
+  card.innerHTML = `
+    <div class="side-label">${side}</div>
+    <select id="grHem_${side}">
+      <option value="0">No Hem</option>
+      <option value="1" selected>1″ Hem</option>
+      <option value="1.5">1.5″ Hem</option>
+      <option value="2">2″ Hem</option>
+      <option value="custom">Custom…</option>
+    </select>
+    <div class="mini-row" id="grHem_${side}_customRow" style="display:none">
+      <label>Depth</label>
+      <input type="number" id="grHem_${side}_custom" value="1.25" step="0.125" min="0.25">
+      <span class="unit">in</span>
+    </div>`;
+  grHemConfig.appendChild(card);
+});
+
+// ── Build per-side grommet config cards ──
+const grGrSideConfig = document.getElementById('grGrSideConfig');
+GR_SIDES.forEach(side => {
+  const card = document.createElement('div');
+  card.className = 'side-card';
+  card.id = `grGrCard_${side}`;
+  card.innerHTML = `
+    <div class="side-label">${side}</div>
+    <select id="grGr_${side}_mode">
+      <option value="none">None</option>
+      <option value="interval" selected>Interval</option>
+      <option value="count">Count</option>
+    </select>
+    <div class="mini-row" id="grGr_${side}_intervalRow">
+      <label>Every</label>
+      <input type="number" id="grGr_${side}_interval" value="24" step="1" min="1">
+      <span class="unit">in</span>
+    </div>
+    <div class="mini-row" id="grGr_${side}_countRow" style="display:none">
+      <label>Qty</label>
+      <input type="number" id="grGr_${side}_count" value="5" step="1" min="2">
+    </div>`;
+  grGrSideConfig.appendChild(card);
+  document.getElementById(`grGr_${side}_mode`).addEventListener('change', function() {
+    document.getElementById(`grGr_${side}_intervalRow`).style.display = this.value === 'interval' ? '' : 'none';
+    document.getElementById(`grGr_${side}_countRow`).style.display = this.value === 'count' ? '' : 'none';
+  });
+});
+
+function grGetHemDepth(side) {
+  const sel = document.getElementById(`grHem_${side}`).value;
+  if (sel === 'custom') return parseFloat(document.getElementById(`grHem_${side}_custom`).value) || 0;
+  return parseFloat(sel) || 0;
+}
+
+function grUpdateCardStates() {
+  GR_SIDES.forEach(side => {
+    document.getElementById(`grGrCard_${side}`).classList.toggle('disabled', grGetHemDepth(side) === 0);
+  });
+}
+grUpdateCardStates();
+
+GR_SIDES.forEach(side => {
+  const sel = document.getElementById(`grHem_${side}`);
+  sel.addEventListener('change', () => {
+    document.getElementById(`grHem_${side}_customRow`).style.display = sel.value === 'custom' ? '' : 'none';
+    grUpdateCardStates();
+  });
+  document.getElementById(`grHem_${side}_custom`).addEventListener('change', grUpdateCardStates);
+});
+
+// ── TrimBox scanner ──
+function grFindTrimBoxes(u8) {
+  const t = [0x2F,0x54,0x72,0x69,0x6D,0x42,0x6F,0x78];
+  const r = [];
+  for (let i = 0; i < u8.length - 60; i++) {
+    let ok = true;
+    for (let j = 0; j < t.length; j++) if (u8[i+j] !== t[j]) { ok = false; break; }
+    if (!ok) continue;
+    let c = '';
+    for (let k = i + t.length; k < Math.min(i + t.length + 100, u8.length); k++) c += String.fromCharCode(u8[k]);
+    const m = c.match(/\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/);
+    if (m) {
+      const x1=parseFloat(m[1]),y1=parseFloat(m[2]),x2=parseFloat(m[3]),y2=parseFloat(m[4]);
+      const tw=Math.abs(x2-x1)/72, th=Math.abs(y2-y1)/72;
+      if (!r.some(e=>Math.abs(e.widthIn-tw)<0.01&&Math.abs(e.heightIn-th)<0.01))
+        r.push({x1,y1,x2,y2,widthIn:tw,heightIn:th});
+    }
+  }
+  return r;
+}
+function grMatchTrimBox(boxes, pW, pH) {
+  if (!boxes.length) return null;
+  const fits = b => (b.widthIn<=pW+0.1&&b.heightIn<=pH+0.1)||(b.heightIn<=pW+0.1&&b.widthIn<=pH+0.1);
+  const diff = b => Math.min(Math.abs(b.widthIn-pW)+Math.abs(b.heightIn-pH), Math.abs(b.heightIn-pW)+Math.abs(b.widthIn-pH));
+  if (boxes.length===1) return fits(boxes[0])?boxes[0]:null;
+  let best=null,bd=Infinity;
+  for (const b of boxes) if(fits(b)){const d=diff(b);if(d<bd){bd=d;best=b;}}
+  return best;
+}
+
+// ── File loading ──
+const grDropZone = document.getElementById('grDropZone');
+const grFileInput = document.getElementById('grFileInput');
+const grFileNameEl = document.getElementById('grFileName');
+const grPdfInfoEl = document.getElementById('grPdfInfo');
+const grSizeHintEl = document.getElementById('grSizeHint');
+const grGenerateBtn = document.getElementById('grGenerateBtn');
+const grDownloadBtn = document.getElementById('grDownloadBtn');
+const grClearBtn = document.getElementById('grClearBtn');
+const grPreviewWrap = document.getElementById('grPreviewWrap');
+
+function grSetupDrop(zone, input, onLoad) {
+  zone.addEventListener('click', e => { if (e.target.classList.contains('dz-clear')) return; input.click(); });
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); if(e.dataTransfer.files[0]) onLoad(e.dataTransfer.files[0]); });
+  input.addEventListener('change', () => { if(input.files[0]) onLoad(input.files[0]); });
+}
+
+async function grLoadPdf(file) {
+  const data = await file.arrayBuffer();
+  const rawBytes = new Uint8Array(data.slice(0));
+  const doc = await pdfjsLib2.getDocument({data}).promise;
+  const page = await doc.getPage(1);
+  const vp = page.getViewport({scale:1});
+  const mediaW=+(vp.width/72).toFixed(4), mediaH=+(vp.height/72).toFixed(4);
+  const boxes = grFindTrimBoxes(rawBytes);
+  const matched = grMatchTrimBox(boxes, mediaW, mediaH);
+  let trimW=null,trimH=null,bleedL=0,bleedR=0,bleedT=0,bleedB=0;
+  if (matched) {
+    trimW=matched.widthIn; trimH=matched.heightIn;
+    bleedL=matched.x1/72; bleedR=(mediaW*72-matched.x2)/72;
+    bleedT=(mediaH*72-matched.y2)/72; bleedB=matched.y1/72;
+  }
+  grPdfState = {doc,rawBytes,mediaW,mediaH,trimW,trimH,bleedL,bleedR,bleedT,bleedB,fileName:file.name};
+  grFileNameEl.textContent = file.name;
+  grDropZone.classList.add('has-file');
+  if (!grDropZone.querySelector('.dz-clear')) {
+    const cb = document.createElement('button');
+    cb.className='dz-clear'; cb.textContent='✕'; cb.title='Remove';
+    cb.onclick = e => { e.stopPropagation(); grClearFile(); };
+    grDropZone.appendChild(cb);
+  }
+  grAutoFill();
+  grGenerateBtn.disabled = false;
+}
+
+grSetupDrop(grDropZone, grFileInput, async f => {
+  try { await grLoadPdf(f); }
+  catch(e) { console.error(e); grPdfInfoEl.textContent='Error: '+e.message; grPdfInfoEl.style.color='var(--red)'; }
+});
+
+function grAutoFill() {
+  if (!grPdfState) return;
+  const {mediaW,mediaH,trimW,trimH,bleedL,bleedR,bleedT,bleedB} = grPdfState;
+  let fw,fh;
+  if (trimW !== null) {
+    fw=+trimW.toFixed(2); fh=+trimH.toFixed(2);
+    const avg=((bleedL+bleedR+bleedT+bleedB)/4).toFixed(3);
+    document.getElementById('grInputBleed').value = avg;
+    grSizeHintEl.textContent = `PDF: ${mediaW}″×${mediaH}″ — TrimBox: ${fw}″×${fh}″ — Bleed: L${bleedL.toFixed(2)}″ R${bleedR.toFixed(2)}″ T${bleedT.toFixed(2)}″ B${bleedB.toFixed(2)}″`;
+  } else {
+    const ib = parseFloat(document.getElementById('grInputBleed').value)||0;
+    fw=+(mediaW-2*ib).toFixed(2); fh=+(mediaH-2*ib).toFixed(2);
+    grSizeHintEl.textContent = ib>0 ? `PDF: ${mediaW}″×${mediaH}″ — no TrimBox — ${ib}″ bleed → ${fw}″×${fh}″` : `PDF: ${mediaW}″×${mediaH}″ — no TrimBox. Set bleed if needed.`;
+  }
+  document.getElementById('grFinW').value = fw;
+  document.getElementById('grFinH').value = fh;
+}
+document.getElementById('grInputBleed').addEventListener('input', grAutoFill);
+document.getElementById('grInputBleed').addEventListener('change', grAutoFill);
+
+function grClearFile() {
+  grPdfState = null;
+  grFileNameEl.textContent = '';
+  grDropZone.classList.remove('has-file');
+  const cb = grDropZone.querySelector('.dz-clear'); if(cb) cb.remove();
+  grGenerateBtn.disabled = true;
+  grDownloadBtn.disabled = true;
+  document.getElementById('grFinW').value = '';
+  document.getElementById('grFinH').value = '';
+  document.getElementById('grInputBleed').value = '';
+  grSizeHintEl.textContent = '';
+  grPdfInfoEl.textContent = ''; grPdfInfoEl.style.color = '';
+  grPreviewWrap.innerHTML = '<div class="placeholder-msg"><div class="big">🖼️</div>Drop a banner PDF and click <strong>Generate Preview</strong></div>';
+}
+grClearBtn.addEventListener('click', grClearFile);
+
+// ── Grommet position calculator ──
+function grComputePositions(cfg) {
+  const {finW,finH,hems,grSidesCfg,corners,totalW,totalH,trimInsetL,trimInsetT,trimInsetB} = cfg;
+  const hemT=hems.top,hemB=hems.bottom,hemL=hems.left,hemR=hems.right;
+  const trimLeft=trimInsetL, trimRight=trimInsetL+finW;
+  const trimTop=trimInsetT, trimBottom=trimInsetT+finH;
+  const grommets=[]; const placed=new Set();
+  function add(x,y){const k=`${x.toFixed(3)},${y.toFixed(3)}`;if(!placed.has(k)){placed.add(k);grommets.push({x,y});}}
+  const ca={TL:corners==='all'||corners==='top',TR:corners==='all'||corners==='top',BL:corners==='all'||corners==='bottom',BR:corners==='all'||corners==='bottom'};
+  function pos(s,e,mode,iv,ct,sk,ek){
+    const len=e-s; if(len<=0) return [];
+    const r=[]; const sOK=ca[sk],eOK=ca[ek];
+    if(mode==='interval'){const n=Math.max(1,Math.round(len/iv));const sp=len/n;for(let i=0;i<=n;i++){if(i===0&&!sOK)continue;if(i===n&&!eOK)continue;r.push(s+i*sp);}}
+    else if(mode==='count'){const n=Math.max(2,ct);const sp=len/(n-1);for(let i=0;i<n;i++){if(i===0&&!sOK)continue;if(i===n-1&&!eOK)continue;r.push(s+i*sp);}}
+    return r;
+  }
+  if(grSidesCfg.top.mode!=='none'&&hemT>0){const sx=hemL>0?trimInsetL-hemL/2:trimLeft+hemT/2;const ex=hemR>0?trimRight+hemR/2:trimRight-hemT/2;pos(sx,ex,grSidesCfg.top.mode,grSidesCfg.top.interval,grSidesCfg.top.count,'TL','TR').forEach(x=>add(x,trimInsetT-hemT/2));}
+  if(grSidesCfg.bottom.mode!=='none'&&hemB>0){const sx=hemL>0?trimInsetL-hemL/2:trimLeft+hemB/2;const ex=hemR>0?trimRight+hemR/2:trimRight-hemB/2;pos(sx,ex,grSidesCfg.bottom.mode,grSidesCfg.bottom.interval,grSidesCfg.bottom.count,'BL','BR').forEach(x=>add(x,trimBottom+hemB/2));}
+  if(grSidesCfg.left.mode!=='none'&&hemL>0){const sy=hemT>0?trimInsetT-hemT/2:trimTop+hemL/2;const ey=hemB>0?trimBottom+hemB/2:trimBottom-hemL/2;pos(sy,ey,grSidesCfg.left.mode,grSidesCfg.left.interval,grSidesCfg.left.count,'TL','BL').forEach(y=>add(trimInsetL-hemL/2,y));}
+  if(grSidesCfg.right.mode!=='none'&&hemR>0){const sy=hemT>0?trimInsetT-hemT/2:trimTop+hemR/2;const ey=hemB>0?trimBottom+hemB/2:trimBottom-hemR/2;pos(sy,ey,grSidesCfg.right.mode,grSidesCfg.right.interval,grSidesCfg.right.count,'TR','BR').forEach(y=>add(trimRight+hemR/2,y));}
+  return {grommets,totalW,totalH,trimLeft,trimRight,trimTop,trimBottom};
+}
+
+function grGetConfig() {
+  const finW=parseFloat(document.getElementById('grFinW').value)||0;
+  const finH=parseFloat(document.getElementById('grFinH').value)||0;
+  const inputBleed=parseFloat(document.getElementById('grInputBleed').value)||0;
+  const grDia=parseFloat(document.getElementById('grDia').value)||0.18;
+  const grStrokePt=parseFloat(document.getElementById('grStroke').value)||2;
+  const corners=document.getElementById('grCorners').value;
+  const hems={}; GR_SIDES.forEach(s=>{hems[s]=grGetHemDepth(s);});
+  const grSidesCfg={}; GR_SIDES.forEach(s=>{grSidesCfg[s]={mode:document.getElementById(`grGr_${s}_mode`).value,interval:parseFloat(document.getElementById(`grGr_${s}_interval`).value)||24,count:parseInt(document.getElementById(`grGr_${s}_count`).value)||5};});
+  let bleedPerSide={top:inputBleed,bottom:inputBleed,left:inputBleed,right:inputBleed};
+  if(grPdfState&&grPdfState.trimW!==null){bleedPerSide={top:grPdfState.bleedT>0.001?grPdfState.bleedT:inputBleed,bottom:grPdfState.bleedB>0.001?grPdfState.bleedB:inputBleed,left:grPdfState.bleedL>0.001?grPdfState.bleedL:inputBleed,right:grPdfState.bleedR>0.001?grPdfState.bleedR:inputBleed};}
+  const eL=hems.left>0?hems.left:bleedPerSide.left, eR=hems.right>0?hems.right:bleedPerSide.right;
+  const eT=hems.top>0?hems.top:bleedPerSide.top, eB=hems.bottom>0?hems.bottom:bleedPerSide.bottom;
+  const totalW=finW+eL+eR, totalH=finH+eT+eB;
+  const trimInsetL=hems.left>0?hems.left:bleedPerSide.left, trimInsetR=hems.right>0?hems.right:bleedPerSide.right;
+  const trimInsetT=hems.top>0?hems.top:bleedPerSide.top, trimInsetB=hems.bottom>0?hems.bottom:bleedPerSide.bottom;
+  return {finW,finH,inputBleed,bleedPerSide,hems,grSidesCfg,corners,grDia,grStrokePt,eL,eR,eT,eB,totalW,totalH,trimInsetL,trimInsetR,trimInsetT,trimInsetB};
+}
+
+// ── Render page ──
+async function grRenderPage(doc,num,maxPx){const p=await doc.getPage(num);const v0=p.getViewport({scale:1});const sc=Math.min(maxPx/Math.max(v0.width,v0.height),6);const v=p.getViewport({scale:sc});const c=new OffscreenCanvas(Math.round(v.width),Math.round(v.height));await p.render({canvasContext:c.getContext('2d'),viewport:v}).promise;return c;}
+
+// ── Generate Preview ──
+grGenerateBtn.addEventListener('click', async () => {
+  if(!grPdfState) return;
+  grGenerateBtn.disabled=true; grGenerateBtn.textContent='Rendering…';
+  try {
+    const cfg=grGetConfig();
+    const {finW,finH,bleedPerSide,hems,grDia,grStrokePt,totalW,totalH,trimInsetL,trimInsetR,trimInsetT,trimInsetB}=cfg;
+    const res=grComputePositions(cfg);
+    const {grommets,trimLeft,trimRight,trimTop,trimBottom}=res;
+    const area=document.getElementById('grPreviewArea');
+    const avW=area.clientWidth-60;
+    const asp=totalW/totalH;
+    let cW=Math.min(avW,1400),cH=Math.round(cW/asp);
+    if(cH>900){cH=900;cW=Math.round(cH*asp);}
+    cW=Math.max(cW,300);cH=Math.max(cH,150);
+    const maxPx=Math.max(cW,cH)*2.5;
+    const pdfImg=await grRenderPage(grPdfState.doc,1,maxPx);
+    const canvas=document.createElement('canvas');canvas.width=cW;canvas.height=cH;
+    const ctx=canvas.getContext('2d');
+    const s=Math.min(cW/totalW,cH/totalH)*0.92;
+    const offX=(cW-totalW*s)/2, offY=(cH-totalH*s)/2;
+    ctx.fillStyle='#e8e8ed';ctx.fillRect(0,0,cW,cH);
+    ctx.save();ctx.translate(offX,offY);
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,totalW*s,totalH*s);
+    // Cut line below art
+    const cutPx=Math.max(2,(4/72)*s);
+    ctx.strokeStyle='#000';ctx.lineWidth=cutPx;ctx.setLineDash([]);
+    if(hems.top>0){ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(totalW*s,0);ctx.stroke();}
+    if(hems.bottom>0){ctx.beginPath();ctx.moveTo(0,totalH*s);ctx.lineTo(totalW*s,totalH*s);ctx.stroke();}
+    if(hems.left>0){ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(0,totalH*s);ctx.stroke();}
+    if(hems.right>0){ctx.beginPath();ctx.moveTo(totalW*s,0);ctx.lineTo(totalW*s,totalH*s);ctx.stroke();}
+    // Artwork
+    const artX=(trimLeft-bleedPerSide.left)*s,artY=(trimTop-bleedPerSide.top)*s;
+    const artW=(finW+bleedPerSide.left+bleedPerSide.right)*s,artH=(finH+bleedPerSide.top+bleedPerSide.bottom)*s;
+    ctx.drawImage(pdfImg,artX,artY,artW,artH);
+    // Hem overlays
+    ctx.fillStyle='rgba(0,113,227,0.12)';
+    if(hems.top>0) ctx.fillRect(0,0,totalW*s,trimInsetT*s);
+    if(hems.bottom>0) ctx.fillRect(0,(totalH-trimInsetB)*s,totalW*s,trimInsetB*s);
+    if(hems.left>0) ctx.fillRect(0,trimInsetT*s,trimInsetL*s,(totalH-trimInsetT-trimInsetB)*s);
+    if(hems.right>0) ctx.fillRect((totalW-trimInsetR)*s,trimInsetT*s,trimInsetR*s,(totalH-trimInsetT-trimInsetB)*s);
+    // Material edge
+    ctx.strokeStyle='#ff4444';ctx.lineWidth=2;ctx.setLineDash([]);
+    ctx.strokeRect(1,1,totalW*s-2,totalH*s-2);
+    // Trim line
+    ctx.strokeStyle='#00cc6a';ctx.lineWidth=1.5;
+    ctx.strokeRect(trimLeft*s,trimTop*s,finW*s,finH*s);
+    // Fold lines
+    ctx.strokeStyle='#ffaa00';ctx.lineWidth=1.5;ctx.setLineDash([8,5]);
+    if(hems.top>0){ctx.beginPath();ctx.moveTo(0,trimTop*s);ctx.lineTo(totalW*s,trimTop*s);ctx.stroke();}
+    if(hems.bottom>0){ctx.beginPath();ctx.moveTo(0,trimBottom*s);ctx.lineTo(totalW*s,trimBottom*s);ctx.stroke();}
+    if(hems.left>0){ctx.beginPath();ctx.moveTo(trimLeft*s,0);ctx.lineTo(trimLeft*s,totalH*s);ctx.stroke();}
+    if(hems.right>0){ctx.beginPath();ctx.moveTo(trimRight*s,0);ctx.lineTo(trimRight*s,totalH*s);ctx.stroke();}
+    ctx.setLineDash([]);
+    // Hem centerlines
+    ctx.strokeStyle='rgba(0,113,227,0.3)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+    if(hems.top>0){const y=(trimInsetT-hems.top/2)*s;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(totalW*s,y);ctx.stroke();}
+    if(hems.bottom>0){const y=(trimBottom+hems.bottom/2)*s;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(totalW*s,y);ctx.stroke();}
+    if(hems.left>0){const x=(trimInsetL-hems.left/2)*s;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,totalH*s);ctx.stroke();}
+    if(hems.right>0){const x=(trimRight+hems.right/2)*s;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,totalH*s);ctx.stroke();}
+    ctx.setLineDash([]);
+    // Grommets
+    const grR=(grDia/2)*s, grSPx=Math.max(1,(grStrokePt/72)*s);
+    grommets.forEach(g=>{const gx=g.x*s,gy=g.y*s;ctx.beginPath();ctx.arc(gx,gy,Math.max(grR,3),0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();ctx.strokeStyle='#000';ctx.lineWidth=Math.max(grSPx,1.5);ctx.stroke();
+      if(grR>4){ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=0.5;ctx.beginPath();ctx.moveTo(gx-grR*1.5,gy);ctx.lineTo(gx+grR*1.5,gy);ctx.stroke();ctx.beginPath();ctx.moveTo(gx,gy-grR*1.5);ctx.lineTo(gx,gy+grR*1.5);ctx.stroke();}});
+    // Labels
+    const fs=Math.max(10,Math.min(14,s*0.6));ctx.font=`bold ${fs}px -apple-system,sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
+    function pill(t,x,y){const m=ctx.measureText(t);const pw=m.width+8,ph=fs+6;ctx.fillStyle='rgba(0,0,0,0.8)';ctx.beginPath();ctx.roundRect(x-pw/2,y-ph/2,pw,ph,3);ctx.fill();ctx.fillStyle='#fff';ctx.fillText(t,x,y+1);}
+    pill(`${finW}″×${finH}″ trim`,(trimLeft+finW/2)*s,(trimTop+finH/2)*s);
+    pill(`Total: ${totalW.toFixed(1)}″×${totalH.toFixed(1)}″`,totalW*s/2,totalH*s-fs);
+    if(hems.top>0) pill(`${hems.top}″ hem`,totalW*s/2,(trimInsetT-hems.top/2)*s);
+    if(hems.bottom>0) pill(`${hems.bottom}″ hem`,totalW*s/2,(trimBottom+hems.bottom/2)*s);
+    ctx.restore();
+
+    grPreviewWrap.innerHTML='';
+    const wrap=document.createElement('div');wrap.className='canvas-wrap';wrap.appendChild(canvas);grPreviewWrap.appendChild(wrap);
+    // Info bar
+    const sums=[];
+    GR_SIDES.forEach(side=>{const sc=cfg.grSidesCfg[side];const hem=hems[side];if(sc.mode==='none'||hem===0)return;
+      const cnt=grommets.filter(g=>{if(side==='top')return Math.abs(g.y-(trimInsetT-hems.top/2))<0.01;if(side==='bottom')return Math.abs(g.y-(trimBottom+hems.bottom/2))<0.01;if(side==='left')return Math.abs(g.x-(trimInsetL-hems.left/2))<0.01;if(side==='right')return Math.abs(g.x-(trimRight+hems.right/2))<0.01;return false;}).length;
+      sums.push(`${side}: ${cnt} (${sc.mode==='interval'?sc.interval+'″ int':sc.count+' qty'})`);});
+    const info=document.createElement('div');info.className='info-bar';
+    info.innerHTML=`<strong>${grommets.length} grommet marks</strong> — Trim: <strong>${finW}″×${finH}″</strong> — Total: <strong>${totalW.toFixed(1)}″×${totalH.toFixed(1)}″</strong> — ${grDia}″ Ø, ${grStrokePt}pt stroke`+(sums.length?' — '+sums.join(' · '):'');
+    grPreviewWrap.appendChild(info);
+    grDownloadBtn.disabled=false;
+  } catch(e){console.error(e);grPreviewWrap.innerHTML=`<div class="placeholder-msg" style="color:var(--red)">Error: ${e.message}</div>`;}
+  grGenerateBtn.disabled=false;grGenerateBtn.textContent='Generate Preview';
+});
+
+// ── Download PDF ──
+grDownloadBtn.addEventListener('click', async () => {
+  if(!grPdfState) return;
+  grDownloadBtn.disabled=true;grDownloadBtn.textContent='Building PDF…';
+  try {
+    const {PDFDocument,rgb,PDFName}=PDFLib;
+    const cfg=grGetConfig();
+    const {finW,finH,inputBleed,bleedPerSide,hems,grDia,grStrokePt,totalW,totalH,trimInsetL,trimInsetR,trimInsetT,trimInsetB}=cfg;
+    const res=grComputePositions(cfg);
+    const {grommets}=res;
+    const hemT=hems.top,hemB=hems.bottom,hemL=hems.left,hemR=hems.right;
+    const pageWPt=totalW*72, pageHPt=totalH*72;
+    const srcDoc=await PDFDocument.load(grPdfState.rawBytes.slice(0));
+    const outDoc=await PDFDocument.create();
+    const page=outDoc.addPage([pageWPt,pageHPt]);
+    const srcPage=srcDoc.getPage(0);
+    const embPage=await outDoc.embedPage(srcPage);
+    let origTrimX,origTrimY;
+    if(grPdfState.trimW!==null){origTrimX=grPdfState.bleedL*72;origTrimY=grPdfState.bleedB*72;}
+    else{origTrimX=bleedPerSide.left*72;origTrimY=bleedPerSide.bottom*72;}
+    const outTrimX=trimInsetL*72, outTrimY=trimInsetB*72;
+    page.drawPage(embPage,{x:outTrimX-origTrimX,y:outTrimY-origTrimY,width:embPage.width,height:embPage.height});
+    // Cut lines
+    const cutLW=4,cutC=rgb(0,0,0);
+    if(hemB>0) page.drawLine({start:{x:0,y:0},end:{x:pageWPt,y:0},thickness:cutLW,color:cutC});
+    if(hemT>0) page.drawLine({start:{x:0,y:pageHPt},end:{x:pageWPt,y:pageHPt},thickness:cutLW,color:cutC});
+    if(hemL>0) page.drawLine({start:{x:0,y:0},end:{x:0,y:pageHPt},thickness:cutLW,color:cutC});
+    if(hemR>0) page.drawLine({start:{x:pageWPt,y:0},end:{x:pageWPt,y:pageHPt},thickness:cutLW,color:cutC});
+    // Grommets
+    const grRPt=(grDia/2)*72;
+    grommets.forEach(g=>{page.drawCircle({x:g.x*72,y:(totalH-g.y)*72,size:grRPt,color:rgb(1,1,1),borderColor:rgb(0,0,0),borderWidth:cfg.grStrokePt});});
+    // TrimBox + BleedBox
+    page.node.set(PDFName.of('TrimBox'),outDoc.context.obj([outTrimX,outTrimY,outTrimX+finW*72,outTrimY+finH*72]));
+    const bx1=Math.max(0,outTrimX-bleedPerSide.left*72),by1=Math.max(0,outTrimY-bleedPerSide.bottom*72);
+    const bx2=Math.min(pageWPt,outTrimX+finW*72+bleedPerSide.right*72),by2=Math.min(pageHPt,outTrimY+finH*72+bleedPerSide.top*72);
+    page.node.set(PDFName.of('BleedBox'),outDoc.context.obj([bx1,by1,bx2,by2]));
+    const pdfBytes=await outDoc.save({useObjectStreams:false});
+    const blob=new Blob([pdfBytes],{type:'application/pdf'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=`${grPdfState.fileName.replace(/\.pdf$/i,'')  } - grommets.pdf`;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  } catch(e){console.error(e);alert('PDF error: '+e.message);}
+  grDownloadBtn.disabled=false;grDownloadBtn.textContent='⬇ Download PDF with Grommets';
 });
 </script>
 </body>
