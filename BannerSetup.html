@@ -607,8 +607,7 @@ function autoFillDimensions() {
     // TrimBox found — use actual trim dimensions (correct even with asymmetric bleed)
     fw = +facePdf.trimW.toFixed(2);
     fh = +facePdf.trimH.toFixed(2);
-    const avgBleed = ((facePdf.bleedL + facePdf.bleedR + facePdf.bleedT + facePdf.bleedB) / 4).toFixed(3);
-    document.getElementById('inputBleed').value = avgBleed;
+    // Don't average asymmetric bleed — per-side values are used internally from TrimBox
     sizeHint.textContent = `PDF: ${facePdf.mediaW}″ × ${facePdf.mediaH}″ — TrimBox: ${fw}″ × ${fh}″` +
       ` — Bleed: L${facePdf.bleedL.toFixed(2)}″ R${facePdf.bleedR.toFixed(2)}″ T${facePdf.bleedT.toFixed(2)}″ B${facePdf.bleedB.toFixed(2)}″`;
   } else {
@@ -674,6 +673,15 @@ function getConfig() {
   const inputBleed = parseFloat(document.getElementById('inputBleed').value) || 0;
   const outputBleed = parseFloat(document.getElementById('outputBleed').value) || 0;
 
+  // Per-side input bleed: use TrimBox values if available, else symmetric inputBleed
+  let ibL = inputBleed, ibR = inputBleed, ibT = inputBleed, ibB = inputBleed;
+  if (facePdf && facePdf.trimW !== null) {
+    ibL = facePdf.bleedL || 0;
+    ibR = facePdf.bleedR || 0;
+    ibT = facePdf.bleedT || 0;
+    ibB = facePdf.bleedB || 0;
+  }
+
   const sides = {};
   SIDES.forEach(side => {
     const type = document.getElementById(side + 'Type').value;
@@ -688,7 +696,7 @@ function getConfig() {
   const totalW = finW + eL + eR + outputBleed * 2;
   const totalH = finH + eT + eB + outputBleed * 2;
 
-  return { finW, finH, inputBleed, outputBleed, sides, eL, eR, eT, eB, totalW, totalH };
+  return { finW, finH, inputBleed, ibL, ibR, ibT, ibB, outputBleed, sides, eL, eR, eT, eB, totalW, totalH };
 }
 
 // ════════════════════════════════════════════
@@ -779,11 +787,11 @@ async function getAllBannerPairs(maxPx) {
 // DRAW IMAGE ALIGNED — positions image so its trim aligns with output trim
 // No stretching: image drawn at correct aspect with trim aligned
 // ════════════════════════════════════════════
-function drawImageAligned(ctx, img, ppi, trimX, trimY, finW, finH, inputBleed, rotated) {
-  const imgW = (finW + 2 * inputBleed) * ppi;
-  const imgH = (finH + 2 * inputBleed) * ppi;
-  const imgX = trimX - inputBleed * ppi;
-  const imgY = trimY - inputBleed * ppi;
+function drawImageAligned(ctx, img, ppi, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, rotated) {
+  const imgW = (finW + ibL + ibR) * ppi;
+  const imgH = (finH + ibT + ibB) * ppi;
+  const imgX = trimX - ibL * ppi;
+  const imgY = trimY - ibB * ppi;
 
   ctx.save();
   if (rotated) {
@@ -800,7 +808,7 @@ function drawImageAligned(ctx, img, ppi, trimX, trimY, finW, finH, inputBleed, r
 // DRAW FACE — preview canvas with all overlays
 // ════════════════════════════════════════════
 function drawFace(canvas, thisImg, otherImg, cfg, label, thisRotated, otherRotated) {
-  const { finW, finH, inputBleed, outputBleed, sides, eL, eR, eT, eB, totalW, totalH } = cfg;
+  const { finW, finH, ibL, ibR, ibT, ibB, outputBleed, sides, eL, eR, eT, eB, totalW, totalH } = cfg;
 
   const s = Math.min(canvas.width / totalW, canvas.height / totalH);
   const offX = (canvas.width - totalW * s) / 2;
@@ -832,7 +840,7 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisRotated, otherRotat
   ctx.beginPath();
   ctx.rect(0, foldTop, totalW * s, foldBot - foldTop);
   ctx.clip();
-  drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisRotated);
+  drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, thisRotated);
   ctx.restore();
 
   // ── Pocket / hem zones: OTHER side's art, rotated 180° about trim center at fold ──
@@ -843,7 +851,7 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisRotated, otherRotat
     ctx.beginPath(); ctx.rect(0, 0, totalW * s, foldTop); ctx.clip();
     ctx.translate(2 * trimX + trimW, 2 * foldTop);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, false);
+    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, false);
     ctx.restore();
   }
   // Bottom — rotated 180° about (trim center X, foldBot) → foot-to-foot
@@ -852,7 +860,7 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisRotated, otherRotat
     ctx.beginPath(); ctx.rect(0, foldBot, totalW * s, (outputBleed + eB) * s); ctx.clip();
     ctx.translate(2 * trimX + trimW, 2 * foldBot);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, inputBleed, false);
+    drawImageAligned(ctx, otherImg, s, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, false);
     ctx.restore();
   }
 
@@ -861,12 +869,12 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisRotated, otherRotat
     // Left bleed
     ctx.save();
     ctx.beginPath(); ctx.rect(0, foldTop, foldLeft, foldBot - foldTop); ctx.clip();
-    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisRotated);
+    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, thisRotated);
     ctx.restore();
     // Right bleed
     ctx.save();
     ctx.beginPath(); ctx.rect(foldRight, foldTop, (outputBleed + eR) * s, foldBot - foldTop); ctx.clip();
-    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, inputBleed, thisRotated);
+    drawImageAligned(ctx, thisImg, s, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, thisRotated);
     ctx.restore();
   }
 
@@ -989,7 +997,7 @@ function drawFace(canvas, thisImg, otherImg, cfg, label, thisRotated, otherRotat
 // BUILD CLEAN ARTWORK — no overlays, for PDF download
 // ════════════════════════════════════════════
 function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisRotated, otherRotated) {
-  const { finW, finH, inputBleed, outputBleed, eL, eR, eT, eB, totalW, totalH } = cfg;
+  const { finW, finH, ibL, ibR, ibT, ibB, outputBleed, eL, eR, eT, eB, totalW, totalH } = cfg;
 
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -1012,7 +1020,7 @@ function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisRotated, otherRotat
   // ── This face's art in center zone ONLY (clipped between fold lines) ──
   ctx.save();
   ctx.beginPath(); ctx.rect(0, foldTop, w, foldBot - foldTop); ctx.clip();
-  drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisRotated);
+  drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, thisRotated);
   ctx.restore();
 
   // ── Pocket zones with other side's art, rotated 180° about trim center at fold ──
@@ -1022,7 +1030,7 @@ function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisRotated, otherRotat
     ctx.beginPath(); ctx.rect(0, 0, w, foldTop); ctx.clip();
     ctx.translate(2 * trimX + trimW, 2 * foldTop);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, false);
+    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, false);
     ctx.restore();
   }
   if (eB > 0) {
@@ -1030,7 +1038,7 @@ function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisRotated, otherRotat
     ctx.beginPath(); ctx.rect(0, foldBot, w, h - foldBot); ctx.clip();
     ctx.translate(2 * trimX + trimW, 2 * foldBot);
     ctx.scale(-1, -1);
-    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, inputBleed, false);
+    drawImageAligned(ctx, otherImg, ppi, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, false);
     ctx.restore();
   }
 
@@ -1038,11 +1046,11 @@ function buildCleanArtwork(w, h, thisImg, otherImg, cfg, thisRotated, otherRotat
   if (outputBleed > 0) {
     ctx.save();
     ctx.beginPath(); ctx.rect(0, foldTop, foldLeft, foldBot - foldTop); ctx.clip();
-    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisRotated);
+    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, thisRotated);
     ctx.restore();
     ctx.save();
     ctx.beginPath(); ctx.rect(foldRight, foldTop, w - foldRight, foldBot - foldTop); ctx.clip();
-    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, inputBleed, thisRotated);
+    drawImageAligned(ctx, thisImg, ppi, trimX, trimY, finW, finH, ibL, ibR, ibT, ibB, thisRotated);
     ctx.restore();
   }
 
@@ -1324,8 +1332,8 @@ async function downloadSetup(jsPDF) {
       backJpeg, backPxW, backPxH,
       isSame
     }], {
-      trimBoxIn: [outputBleed + eL, outputBleed + eB, outputBleed + eL + finW, outputBleed + eB + finH],
-      bleedBoxIn: outputBleed > 0 ? [eL, eB, eL + finW + 2*outputBleed, eB + finH + 2*outputBleed] : undefined
+      trimBoxIn: [outputBleed, outputBleed, totalW - outputBleed, totalH - outputBleed],
+      bleedBoxIn: outputBleed > 0 ? [0, 0, totalW, totalH] : undefined
     });
 
     const baseName = faceRaster.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
@@ -1367,8 +1375,8 @@ async function downloadSetup(jsPDF) {
   downloadBtn.textContent = 'Assembling PDF…';
 
   const pdfBytes = buildRawPdfSimple(totalW, totalH, pageImages, {
-    trimBoxIn: [outputBleed + eL, outputBleed + eB, outputBleed + eL + finW, outputBleed + eB + finH],
-    bleedBoxIn: outputBleed > 0 ? [eL, eB, eL + finW + 2*outputBleed, eB + finH + 2*outputBleed] : undefined
+    trimBoxIn: [outputBleed, outputBleed, totalW - outputBleed, totalH - outputBleed],
+    bleedBoxIn: outputBleed > 0 ? [0, 0, totalW, totalH] : undefined
   });
   const baseName = facePdf.fileName.replace(/\.(pdf|jpe?g|tiff?|png|bmp|webp)$/i, '');
   savePdfBlob(pdfBytes, `${baseName} - banner print.pdf`);
@@ -1517,7 +1525,7 @@ function buildRawPdfSimple(pageWIn, pageHIn, pages, opts) {
 // ════════════════════════════════════════════
 function buildRawPdfComposite(totalWIn, totalHIn, cfg, banners, opts) {
   opts = opts || {};
-  const { finW, finH, inputBleed, outputBleed, sides, eL, eR, eT, eB } = cfg;
+  const { finW, finH, ibL, ibR, ibT, ibB, outputBleed, sides, eL, eR, eT, eB } = cfg;
   const { userUnit, boxW, boxH, s } = computeUserUnit(totalWIn, totalHIn);
   const uu = userUnit !== 1 ? ` /UserUnit ${userUnit}` : '';
 
@@ -1539,11 +1547,11 @@ function buildRawPdfComposite(totalWIn, totalHIn, cfg, banners, opts) {
   const foldTop = trimY + finH;                      // top fold line
   const trimCenterX = trimX + finW / 2;
 
-  // Image placement (inches) — image covers trim ± inputBleed
-  const imgWIn = finW + 2 * inputBleed;
-  const imgHIn = finH + 2 * inputBleed;
-  const imgX = trimX - inputBleed;
-  const imgY = trimY - inputBleed;
+  // Image placement (inches) — image covers trim ± per-side input bleed
+  const imgWIn = finW + ibL + ibR;
+  const imgHIn = finH + ibT + ibB;
+  const imgX = trimX - ibL;
+  const imgY = trimY - ibB;
 
   // Convert to box-units for PDF operators
   const f = (v) => (v * s).toFixed(4);
